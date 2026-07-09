@@ -83,13 +83,13 @@ PeliculasApp/
 
 Si solo quieres usar la aplicación, sin tocar código:
 
-1. Ve a la sección **Releases** de este repositorio y descarga el instalador más reciente
-   (`Peliculas y Series Setup X.X.X.exe`).
+1. Ve a la [**última Release**](https://github.com/Gabriel-Luca07/peliculas-series-app/releases/latest)
+   de este repositorio y descarga `Peliculas y Series Setup X.X.X.exe`.
 2. Ejecútalo y sigue el asistente (puedes elegir la carpeta de instalación).
 3. Al terminar, tendrás un acceso directo en el menú Inicio y, si lo marcaste, en el escritorio.
 
-También se genera una versión **portable** (`Peliculas y Series X.X.X.exe`) que no requiere
-instalación: descárgala y ejecútala directamente.
+En esa misma Release también encontrarás una versión **portable**
+(`Peliculas y Series X.X.X.exe`) que no requiere instalación: descárgala y ejecútala directamente.
 
 > La aplicación funciona sin conexión para llevar tu lista, pero necesita una clave gratuita de
 > TMDB para el autocompletado, pósters, tráilers, recomendaciones y próximos estrenos. Ver
