@@ -1,0 +1,11 @@
+# Dependencias (se instalan con npm install)
+node_modules/
+
+# Runtime portable de Node usado solo en este equipo de desarrollo
+tools/
+
+# Salida del instalador (se genera con npm run dist)
+release/
+
+# Datos de usuario si se llegaran a generar dentro del proyecto por error
+*.log

@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Películas y Series</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<svg class="icon-defs" aria-hidden="true">
+  <symbol id="icon-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.2"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.2"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.2"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.2"/></symbol>
+  <symbol id="icon-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5l3.2 2.4"/></symbol>
+  <symbol id="icon-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M8 12.3l2.8 2.8L16.3 9"/></symbol>
+  <symbol id="icon-sliders" viewBox="0 0 24 24"><line x1="4" y1="6.5" x2="20" y2="6.5"/><circle cx="9.5" cy="6.5" r="2"/><line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2"/><line x1="4" y1="17.5" x2="20" y2="17.5"/><circle cx="8" cy="17.5" r="2"/></symbol>
+  <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.8"/><line x1="20" y1="20" x2="15.6" y2="15.6"/></symbol>
+  <symbol id="icon-star" viewBox="0 0 24 24"><path d="M12 3.3l2.7 5.6 6.1.6-4.6 4.2 1.3 6-5.5-3-5.5 3 1.3-6-4.6-4.2 6.1-.6z"/></symbol>
+  <symbol id="icon-tv" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="12.5" rx="1.8"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></symbol>
+  <symbol id="icon-dice" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="8.7" cy="8.7" r="1.1"/><circle cx="15.3" cy="8.7" r="1.1"/><circle cx="12" cy="12" r="1.1"/><circle cx="8.7" cy="15.3" r="1.1"/><circle cx="15.3" cy="15.3" r="1.1"/></symbol>
+  <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3.5v11.5"/><path d="M7.2 10.2L12 15l4.8-4.8"/><path d="M4.5 19.5h15"/></symbol>
+  <symbol id="icon-upload" viewBox="0 0 24 24"><path d="M12 20.5V9"/><path d="M7.2 13.8L12 9l4.8 4.8"/><path d="M4.5 19.5h15"/></symbol>
+  <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4.5 7h15"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M6.5 7l1 12a2 2 0 0 0 2 1.8h5a2 2 0 0 0 2-1.8l1-12"/><path d="M9.3 7V4.6A1 1 0 0 1 10.3 3.6h3.4a1 1 0 0 1 1 1V7"/></symbol>
+  <symbol id="icon-x" viewBox="0 0 24 24"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></symbol>
+  <symbol id="icon-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+  <symbol id="icon-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="9.2" x2="21" y2="9.2"/><line x1="3" y1="15.2" x2="21" y2="15.2"/><line x1="8" y1="4" x2="8" y2="9.2"/><line x1="16" y1="4" x2="16" y2="9.2"/><line x1="8" y1="15.2" x2="8" y2="20"/><line x1="16" y1="15.2" x2="16" y2="20"/></symbol>
+  <symbol id="icon-repeat" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 8-8h6"/><path d="M15 1l3 3-3 3"/><path d="M20 12a8 8 0 0 1-8 8H6"/><path d="M9 23l-3-3 3-3"/></symbol>
+  <symbol id="icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.3"/><line x1="12" y1="2" x2="12" y2="4.5"/><line x1="12" y1="19.5" x2="12" y2="22"/><line x1="2" y1="12" x2="4.5" y2="12"/><line x1="19.5" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="6.6" y2="6.6"/><line x1="17.4" y1="17.4" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="6.6" y2="17.4"/><line x1="17.4" y1="6.6" x2="19.1" y2="4.9"/></symbol>
+  <symbol id="icon-moon" viewBox="0 0 24 24"><path d="M20 14.3A8.5 8.5 0 1 1 9.7 4a7 7 0 0 0 10.3 10.3z"/></symbol>
+  <symbol id="icon-play" viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></symbol>
+  <symbol id="icon-sparkles" viewBox="0 0 24 24"><path d="M11 3l1.6 4.4L17 9l-4.4 1.6L11 15l-1.6-4.4L5 9l4.4-1.6z"/><path d="M19 14l.8 2.2L22 17l-2.2.8L19 20l-.8-2.2L16 17l2.2-.8z"/></symbol>
+  <symbol id="icon-gift" viewBox="0 0 24 24"><rect x="3.5" y="9.5" width="17" height="11" rx="1.2"/><path d="M3.5 13.5h17"/><path d="M12 9.5v11"/><path d="M12 9.5c-1-2.5-3-4-4.5-3S6 9.5 8 9.5"/><path d="M12 9.5c1-2.5 3-4 4.5-3S18 9.5 16 9.5"/></symbol>
+  <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="icon-select" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M8 12.3l2.8 2.8L16.3 9"/></symbol>
+  <symbol id="icon-restore" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4v4.5h4.5"/></symbol>
+  <symbol id="icon-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><line x1="3.5" y1="10" x2="20.5" y2="10"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/></symbol>
+  <symbol id="icon-clapper" viewBox="0 0 24 24"><path d="M3 9.8h18v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M3 9.8l1.3-5.2 3.2 1.8-1.3 3.4z"/><path d="M8.6 9.8l1.3-5.2 3.2 1.8-1.3 3.4z"/><path d="M14.2 9.8l1.3-5.2 3.2 1.8-1.3 3.4z"/></symbol>
+  <symbol id="icon-ticket" viewBox="0 0 24 24"><path d="M3 8.2a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1.8a2 2 0 0 0 0 4v1.8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1.8a2 2 0 0 0 0-4z"/><line x1="14" y1="6.5" x2="14" y2="17.5" stroke-dasharray="2.2 2.2"/></symbol>
+</svg>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <svg class="icon"><use href="#icon-film"></use></svg>
+      <span>Películas y Series</span>
+    </div>
+    <button id="btn-global-search" class="global-search-trigger">
+      <svg class="icon"><use href="#icon-search"></use></svg>
+      <span>Buscar...</span>
+      <span class="kbd">Ctrl+K</span>
+    </button>
+    <nav class="nav">
+      <div class="nav-indicator" id="nav-indicator"></div>
+      <button class="nav-item active" data-view="dashboard"><svg class="icon"><use href="#icon-grid"></use></svg>Resumen</button>
+      <button class="nav-item" data-view="pendientes"><svg class="icon"><use href="#icon-clock"></use></svg>Pendientes</button>
+      <button class="nav-item" data-view="vistas"><svg class="icon"><use href="#icon-check"></use></svg>Vistas</button>
+      <button class="nav-item" data-view="papelera"><svg class="icon"><use href="#icon-trash"></use></svg>Papelera<span class="nav-badge hidden" id="trash-badge">0</span></button>
+      <button class="nav-item" data-view="ajustes"><svg class="icon"><use href="#icon-sliders"></use></svg>Ajustes</button>
+    </nav>
+    <button id="btn-add" class="btn primary sidebar-add">
+      <svg class="icon"><use href="#icon-plus"></use></svg>Añadir título
+    </button>
+    <button id="btn-theme-toggle" class="btn theme-toggle" title="Cambiar tema">
+      <svg class="icon"><use id="theme-icon-use" href="#icon-sun"></use></svg>
+      <span id="theme-toggle-label">Tema claro</span>
+    </button>
+  </aside>
+
+  <main>
+    <div class="ambient-glow" aria-hidden="true">
+      <span class="glow glow-1"></span>
+      <span class="glow glow-2"></span>
+      <span class="glow glow-3"></span>
+      <svg class="ambient-icon ai-1"><use href="#icon-film"></use></svg>
+      <svg class="ambient-icon ai-2"><use href="#icon-star"></use></svg>
+      <svg class="ambient-icon ai-3"><use href="#icon-clapper"></use></svg>
+      <svg class="ambient-icon ai-4"><use href="#icon-ticket"></use></svg>
+      <svg class="ambient-icon ai-5"><use href="#icon-play"></use></svg>
+      <svg class="ambient-icon ai-6"><use href="#icon-film"></use></svg>
+      <svg class="ambient-icon ai-7"><use href="#icon-star"></use></svg>
+    </div>
+    <section id="view-dashboard" class="view active">
+      <header class="view-header">
+        <div>
+          <h1>Resumen</h1>
+          <p class="subtitle">Tu actividad de un vistazo</p>
+        </div>
+        <button id="btn-wrapped" class="btn"><svg class="icon"><use href="#icon-gift"></use></svg>Resumen anual</button>
+      </header>
+
+      <div id="anniversary-banner" class="anniversary-banner hidden"></div>
+
+      <div class="stat-grid" id="stat-grid"></div>
+
+      <div class="dashboard-grid">
+        <div class="chart-card" id="panel-genres">
+          <h2>Géneros más vistos</h2>
+          <div id="chart-genres" class="bar-chart"></div>
+          <p id="chart-genres-empty" class="chart-empty hidden">Marca algún título como visto para ver esta estadística.</p>
+        </div>
+        <div class="chart-card" id="panel-platforms">
+          <h2>Dónde ver tus pendientes</h2>
+          <div id="chart-platforms" class="bar-chart"></div>
+          <p id="chart-platforms-empty" class="chart-empty hidden">Añade pendientes con plataforma asignada.</p>
+        </div>
+        <div class="chart-card" id="panel-ratings">
+          <h2>Distribución de valoraciones</h2>
+          <div id="chart-ratings" class="hist-chart"></div>
+          <p id="chart-ratings-empty" class="chart-empty hidden">Valora algún título visto para ver esta estadística.</p>
+        </div>
+        <div class="chart-card" id="panel-activity">
+          <h2>Actividad mensual</h2>
+          <div id="chart-activity" class="hist-chart"></div>
+          <p id="chart-activity-empty" class="chart-empty hidden">Aún no hay títulos vistos con fecha registrada.</p>
+        </div>
+        <div class="chart-card" id="panel-years">
+          <h2>Vistas por año</h2>
+          <div id="chart-years" class="hist-chart"></div>
+          <p id="chart-years-empty" class="chart-empty hidden">Aún no hay títulos vistos con fecha registrada.</p>
+        </div>
+        <div class="chart-card" id="panel-eras">
+          <h2>Década de estreno</h2>
+          <div id="chart-eras" class="hist-chart"></div>
+          <p id="chart-eras-empty" class="chart-empty hidden">Añade el año de estreno a tus títulos vistos para ver esta estadística.</p>
+        </div>
+      </div>
+
+      <div class="chart-card recommendations-card" id="panel-recommendations">
+        <div class="rec-header">
+          <h2><svg class="icon"><use href="#icon-sparkles"></use></svg> Recomendado para ti</h2>
+          <button id="btn-refresh-recs" class="icon-btn" title="Actualizar recomendaciones"><svg class="icon"><use href="#icon-repeat"></use></svg></button>
+        </div>
+        <div id="recommendations-list" class="rec-list"></div>
+        <p id="recommendations-empty" class="chart-empty">Valora algunas películas o series (con datos de TMDB) para recibir recomendaciones.</p>
+      </div>
+
+      <div class="chart-card" id="panel-upcoming">
+        <div class="rec-header">
+          <h2><svg class="icon"><use href="#icon-calendar"></use></svg> Próximos estrenos</h2>
+          <button id="btn-refresh-upcoming" class="icon-btn" title="Actualizar"><svg class="icon"><use href="#icon-repeat"></use></svg></button>
+        </div>
+        <div id="upcoming-list" class="upcoming-list"></div>
+        <p id="upcoming-empty" class="chart-empty">No hay estrenos próximos detectados entre tus series (con datos de TMDB).</p>
+      </div>
+
+      <div class="pick-card" id="panel-pick">
+        <div>
+          <h2>¿Qué veo hoy?</h2>
+          <p id="pick-text" class="subtitle">Elige al azar un título de tu lista de pendientes.</p>
+        </div>
+        <button id="btn-pick" class="btn primary"><svg class="icon"><use href="#icon-dice"></use></svg>Sorpréndeme</button>
+      </div>
+    </section>
+
+    <section id="view-pendientes" class="view">
+      <div class="sticky-header">
+        <header class="view-header">
+          <div>
+            <h1>Pendientes</h1>
+          </div>
+          <span class="count-pill" id="count-pendientes"></span>
+        </header>
+        <div class="toolbar">
+          <div class="search-box">
+            <svg class="icon"><use href="#icon-search"></use></svg>
+            <input id="search-pendientes" placeholder="Buscar por título...">
+          </div>
+          <select id="filter-type">
+            <option value="">Películas y series</option>
+            <option value="pelicula">Solo películas</option>
+            <option value="serie">Solo series</option>
+          </select>
+          <select id="filter-platform"></select>
+          <select id="filter-genre"></select>
+          <select id="sort-pendientes">
+            <option value="added-desc">Añadidas recientemente</option>
+            <option value="added-asc">Añadidas hace más tiempo</option>
+            <option value="title-asc">Título (A-Z)</option>
+          </select>
+          <button id="btn-select-pendientes" class="btn" title="Seleccionar varias"><svg class="icon"><use href="#icon-select"></use></svg>Seleccionar</button>
+        </div>
+        <div class="bulk-bar hidden" id="bulk-bar-pendientes">
+          <span id="bulk-count-pendientes">0 seleccionados</span>
+          <div class="bulk-bar-actions">
+            <button id="btn-select-all-pendientes" class="btn">Seleccionar todo</button>
+            <select id="bulk-platform-select-pendientes"></select>
+            <button id="btn-bulk-platform-pendientes" class="btn">Cambiar plataforma</button>
+            <button id="btn-bulk-delete-pendientes" class="btn danger">Eliminar</button>
+            <button id="btn-bulk-cancel-pendientes" class="btn">Cancelar</button>
+          </div>
+        </div>
+      </div>
+      <div id="list-pendientes" class="movie-grid"></div>
+      <button id="load-more-pendientes" class="btn load-more hidden"></button>
+      <p id="empty-pendientes" class="empty hidden">No tienes nada pendiente. Añade una película o serie para empezar.</p>
+    </section>
+
+    <section id="view-vistas" class="view">
+      <div class="sticky-header">
+        <header class="view-header">
+          <div>
+            <h1>Vistas</h1>
+          </div>
+          <div class="header-actions">
+            <button id="btn-bulk-add" class="btn"><svg class="icon"><use href="#icon-plus"></use></svg>Añadir varias vistas</button>
+            <span class="count-pill" id="count-vistas"></span>
+          </div>
+        </header>
+        <div class="toolbar">
+          <div class="search-box">
+            <svg class="icon"><use href="#icon-search"></use></svg>
+            <input id="search-vistas" placeholder="Buscar por título...">
+          </div>
+          <select id="filter-type-vistas">
+            <option value="">Películas y series</option>
+            <option value="pelicula">Solo películas</option>
+            <option value="serie">Solo series</option>
+          </select>
+          <select id="filter-platform-vistas"></select>
+          <select id="filter-genre-vistas"></select>
+          <select id="filter-rating-min">
+            <option value="">Cualquier valoración</option>
+            <option value="9">9 o más</option>
+            <option value="8">8 o más</option>
+            <option value="7">7 o más</option>
+            <option value="6">6 o más</option>
+            <option value="5">5 o más</option>
+          </select>
+          <select id="sort-vistas">
+            <option value="date-desc">Más recientes primero</option>
+            <option value="date-asc">Más antiguas primero</option>
+            <option value="rating-desc">Mejor valoradas</option>
+            <option value="rating-asc">Peor valoradas</option>
+          </select>
+          <button id="btn-select-vistas" class="btn" title="Seleccionar varias"><svg class="icon"><use href="#icon-select"></use></svg>Seleccionar</button>
+        </div>
+        <div class="bulk-bar hidden" id="bulk-bar-vistas">
+          <span id="bulk-count-vistas">0 seleccionados</span>
+          <div class="bulk-bar-actions">
+            <button id="btn-select-all-vistas" class="btn">Seleccionar todo</button>
+            <select id="bulk-platform-select-vistas"></select>
+            <button id="btn-bulk-platform-vistas" class="btn">Cambiar plataforma</button>
+            <button id="btn-bulk-delete-vistas" class="btn danger">Eliminar</button>
+            <button id="btn-bulk-cancel-vistas" class="btn">Cancelar</button>
+          </div>
+        </div>
+      </div>
+      <div id="list-vistas" class="movie-grid"></div>
+      <button id="load-more-vistas" class="btn load-more hidden"></button>
+      <p id="empty-vistas" class="empty hidden">Todavía no has marcado nada como visto.</p>
+    </section>
+
+    <section id="view-papelera" class="view">
+      <header class="view-header">
+        <div>
+          <h1>Papelera</h1>
+          <p class="subtitle">Los títulos eliminados se guardan aquí 30 días antes de borrarse para siempre.</p>
+        </div>
+        <button id="btn-empty-trash" class="btn danger">Vaciar papelera</button>
+      </header>
+      <div id="list-papelera" class="movie-grid"></div>
+      <p id="empty-papelera" class="empty">La papelera está vacía.</p>
+    </section>
+
+    <section id="view-ajustes" class="view">
+      <header class="view-header">
+        <div>
+          <h1>Ajustes</h1>
+          <p class="subtitle">Personaliza la app a tu gusto</p>
+        </div>
+      </header>
+
+      <div class="settings-grid">
+
+        <div class="settings-box">
+          <h2>Apariencia</h2>
+
+          <label>Color de acento</label>
+          <div class="swatch-row" id="accent-swatches">
+            <button type="button" class="swatch" data-accent="rojo" style="--swatch-color:#e0553f" title="Rojo (por defecto)"></button>
+            <button type="button" class="swatch" data-accent="azul" style="--swatch-color:#3987e5" title="Azul"></button>
+            <button type="button" class="swatch" data-accent="verde" style="--swatch-color:#1baf7a" title="Verde"></button>
+            <button type="button" class="swatch" data-accent="violeta" style="--swatch-color:#9085e9" title="Violeta"></button>
+            <button type="button" class="swatch" data-accent="rosa" style="--swatch-color:#e0568f" title="Rosa"></button>
+            <button type="button" class="swatch" data-accent="ambar" style="--swatch-color:#d9962b" title="Ámbar"></button>
+          </div>
+
+          <label>Color de las gráficas</label>
+          <div class="swatch-row" id="chart-color-swatches">
+            <button type="button" class="swatch" data-chart-color="azul" style="--swatch-color:#3987e5" title="Azul (por defecto)"></button>
+            <button type="button" class="swatch" data-chart-color="rojo" style="--swatch-color:#e0553f" title="Rojo"></button>
+            <button type="button" class="swatch" data-chart-color="verde" style="--swatch-color:#1baf7a" title="Verde"></button>
+            <button type="button" class="swatch" data-chart-color="violeta" style="--swatch-color:#9085e9" title="Violeta"></button>
+            <button type="button" class="swatch" data-chart-color="rosa" style="--swatch-color:#e0568f" title="Rosa"></button>
+            <button type="button" class="swatch" data-chart-color="ambar" style="--swatch-color:#d9962b" title="Ámbar"></button>
+          </div>
+
+          <label>Densidad de las listas</label>
+          <div class="segmented" id="density-segmented">
+            <button type="button" class="segment" data-density="comoda">Cómoda</button>
+            <button type="button" class="segment" data-density="compacta">Compacta</button>
+          </div>
+
+          <label class="switch-row">
+            <span>Animaciones</span>
+            <span class="switch">
+              <input type="checkbox" id="motion-toggle" checked>
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+            </span>
+          </label>
+          <p class="help">Si prefieres una interfaz más estática (o el sistema tiene activado "reducir movimiento"), desactívalas aquí.</p>
+        </div>
+
+        <div class="settings-box">
+          <h2>Comportamiento</h2>
+
+          <label>Vista inicial al abrir la app</label>
+          <select id="pref-start-view">
+            <option value="dashboard">Resumen</option>
+            <option value="pendientes">Pendientes</option>
+            <option value="vistas">Vistas</option>
+          </select>
+
+          <label>Orden por defecto en Pendientes</label>
+          <select id="pref-sort-pendientes">
+            <option value="added-desc">Añadidas recientemente</option>
+            <option value="added-asc">Añadidas hace más tiempo</option>
+            <option value="title-asc">Título (A-Z)</option>
+          </select>
+
+          <label>Orden por defecto en Vistas</label>
+          <select id="pref-sort-vistas">
+            <option value="date-desc">Más recientes primero</option>
+            <option value="date-asc">Más antiguas primero</option>
+            <option value="rating-desc">Mejor valoradas</option>
+            <option value="rating-asc">Peor valoradas</option>
+          </select>
+
+          <label>Títulos por página</label>
+          <select id="pref-page-size">
+            <option value="24">24</option>
+            <option value="48">48</option>
+            <option value="96">96</option>
+          </select>
+
+          <label>Al eliminar un título</label>
+          <select id="pref-delete-mode">
+            <option value="undo">Borrar al instante (con opción de deshacer)</option>
+            <option value="confirm">Preguntar siempre antes de borrar</option>
+          </select>
+
+          <label class="switch-row">
+            <span>Recomendaciones automáticas</span>
+            <span class="switch">
+              <input type="checkbox" id="pref-recs-toggle" checked>
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+            </span>
+          </label>
+
+          <label class="switch-row">
+            <span>Aviso "hace un año viste..."</span>
+            <span class="switch">
+              <input type="checkbox" id="pref-anniv-toggle" checked>
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+            </span>
+          </label>
+        </div>
+
+        <div class="settings-box">
+          <h2>Panel del Resumen</h2>
+          <p class="help">Elige qué secciones quieres ver en tu pantalla de Resumen.</p>
+
+          <label class="switch-row"><span>Géneros más vistos</span><span class="switch"><input type="checkbox" class="panel-toggle" data-panel="genres" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+          <label class="switch-row"><span>Dónde ver tus pendientes</span><span class="switch"><input type="checkbox" class="panel-toggle" data-panel="platforms" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+          <label class="switch-row"><span>Distribución de valoraciones</span><span class="switch"><input type="checkbox" class="panel-toggle" data-panel="ratings" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+          <label class="switch-row"><span>Actividad mensual</span><span class="switch"><input type="checkbox" class="panel-toggle" data-panel="activity" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+          <label class="switch-row"><span>Vistas por año</span><span class="switch"><input type="checkbox" class="panel-toggle" data-panel="years" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+          <label class="switch-row"><span>Década de estreno</span><span class="switch"><input type="checkbox" class="panel-toggle" data-panel="eras" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+          <label class="switch-row"><span>Recomendado para ti</span><span class="switch"><input type="checkbox" class="panel-toggle" data-panel="recommendations" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+          <label class="switch-row"><span>Próximos estrenos</span><span class="switch"><input type="checkbox" class="panel-toggle" data-panel="upcoming" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+          <label class="switch-row"><span>¿Qué veo hoy?</span><span class="switch"><input type="checkbox" class="panel-toggle" data-panel="pick" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+        </div>
+
+        <div class="settings-box">
+          <h2>Conexión con TMDB</h2>
+          <label for="tmdb-key">API Key (Read Access Token)</label>
+          <input id="tmdb-key" type="text" placeholder="Pega aquí tu API key">
+
+          <label for="tmdb-language">Idioma de los resultados</label>
+          <select id="tmdb-language">
+            <option value="es-ES">Español</option>
+            <option value="en-US">Inglés</option>
+          </select>
+
+          <label for="tmdb-region">Región de disponibilidad</label>
+          <select id="tmdb-region">
+            <option value="ES">España</option>
+            <option value="MX">México</option>
+            <option value="AR">Argentina</option>
+            <option value="CO">Colombia</option>
+            <option value="CL">Chile</option>
+            <option value="PE">Perú</option>
+            <option value="US">Estados Unidos</option>
+          </select>
+
+          <button id="save-settings" class="btn primary">Guardar</button>
+          <p id="settings-status" class="status"></p>
+          <p class="help">
+            La API key es necesaria para buscar títulos automáticamente (póster, año, género, duración o temporadas).
+            Consíguela gratis en themoviedb.org, dentro de Ajustes de cuenta → API.
+            Sin ella puedes seguir añadiendo títulos a mano.
+          </p>
+        </div>
+
+        <div class="settings-box">
+          <h2>Plataformas</h2>
+          <p class="help">Añade o quita plataformas de las listas desplegables de toda la app.</p>
+          <div id="platforms-list" class="platforms-list"></div>
+          <div class="platform-add-row">
+            <input id="new-platform-input" placeholder="Nueva plataforma...">
+            <button id="btn-add-platform" class="btn">Añadir</button>
+          </div>
+        </div>
+
+        <div class="settings-box">
+          <h2>Copia de seguridad y datos</h2>
+          <p class="help">Guarda tu lista completa en un archivo, o recupérala en este u otro ordenador.</p>
+          <div class="settings-actions">
+            <button id="btn-export" class="btn"><svg class="icon"><use href="#icon-download"></use></svg>Exportar</button>
+            <button id="btn-import" class="btn"><svg class="icon"><use href="#icon-upload"></use></svg>Importar</button>
+          </div>
+          <div class="settings-actions" style="margin-top:10px">
+            <button id="btn-open-data-folder" class="btn">Abrir carpeta de datos</button>
+            <button id="btn-reset-appearance" class="btn">Restablecer apariencia</button>
+          </div>
+          <p id="backup-status" class="status"></p>
+
+          <label class="switch-row">
+            <span>Copia de seguridad automática</span>
+            <span class="switch">
+              <input type="checkbox" id="auto-backup-toggle" checked>
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+            </span>
+          </label>
+          <p class="help">Una vez al día, guarda tu lista en una carpeta aparte sin que tengas que hacer nada.</p>
+          <label>Conservar copias de los últimos</label>
+          <input type="number" id="auto-backup-retention" min="1" max="365" maxlength="3" value="14" style="width:70px">
+          <span style="font-size:12.5px;color:var(--text-muted)"> días</span>
+          <div class="settings-actions" style="margin-top:10px">
+            <button id="btn-backup-now" class="btn">Hacer copia ahora</button>
+            <button id="btn-open-backups-folder" class="btn">Abrir carpeta de copias</button>
+          </div>
+
+          <button id="btn-wipe-data" class="btn danger" style="margin-top:10px">Borrar todos los datos</button>
+        </div>
+
+        <div class="settings-box">
+          <h2>Importar historial de visionado</h2>
+          <p class="help">
+            Ninguna plataforma de streaming ofrece una conexión automática con apps de terceros, pero puedes
+            importar tu historial desde un archivo CSV para marcar como vistas muchas películas de golpe.<br>
+            <strong>Netflix</strong> lo genera directamente: Cuenta → Actividad de visualización → Descargar todo.<br>
+            Para <strong>Prime Video, Disney+, HBO Max</strong> u otras, normalmente hay que solicitar tus datos
+            personales desde la configuración de privacidad de la cuenta (puede tardar días), o crear tú mismo
+            una hoja con columnas de título y fecha. El mismo importador sirve para cualquiera de esos archivos.
+          </p>
+          <button id="btn-import-csv" class="btn"><svg class="icon"><use href="#icon-upload"></use></svg>Elegir archivo CSV...</button>
+
+          <div id="csv-mapping" class="csv-mapping hidden">
+            <p class="hint" id="csv-file-info"></p>
+            <label>Columna con el título</label>
+            <select id="csv-col-title"></select>
+            <label>Columna con la fecha (opcional)</label>
+            <select id="csv-col-date"></select>
+            <label>Tipo (las series se detectan solas si el título trae "Temporada"/"Season")</label>
+            <select id="csv-type">
+              <option value="pelicula">Película</option>
+              <option value="serie">Serie</option>
+            </select>
+            <label>Plataforma donde las viste</label>
+            <select id="csv-platform"></select>
+            <input id="csv-platform-custom" class="hidden" placeholder="Escribe la plataforma">
+            <div class="settings-actions">
+              <button id="csv-import-cancel" class="btn">Cancelar</button>
+              <button id="csv-import-confirm" class="btn primary">Importar</button>
+            </div>
+          </div>
+          <p id="csv-import-status" class="status"></p>
+        </div>
+
+        <div class="settings-box">
+          <h2>Acerca de</h2>
+          <p class="help">Películas y Series <span id="app-version"></span></p>
+          <label>Atajos de teclado</label>
+          <ul class="shortcuts-list">
+            <li><span class="kbd">Ctrl+K</span> Buscar en toda tu colección</li>
+            <li><span class="kbd">Esc</span> Cerrar la ventana activa</li>
+          </ul>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <div id="modal-overlay" class="overlay hidden">
+    <div class="modal">
+      <button class="icon-btn close-btn" id="modal-close"><svg class="icon"><use href="#icon-x"></use></svg></button>
+      <h2 id="modal-title">Añadir título</h2>
+
+      <div class="search-row">
+        <svg class="icon"><use href="#icon-search"></use></svg>
+        <input id="search-input" placeholder="Busca un título en TMDB...">
+      </div>
+      <p id="search-hint" class="hint"></p>
+      <div id="search-results" class="search-results"></div>
+
+      <form id="movie-form">
+        <input type="hidden" id="f-id">
+        <input type="hidden" id="f-tmdbid">
+        <input type="hidden" id="f-mediatype">
+
+        <label>Tipo</label>
+        <select id="f-type">
+          <option value="pelicula">Película</option>
+          <option value="serie">Serie</option>
+        </select>
+
+        <div class="form-row">
+          <img id="f-poster-preview" class="poster-preview" src="" alt="">
+          <div class="form-fields">
+            <label>Título</label>
+            <input id="f-title" required>
+            <div class="inline-links">
+              <button type="button" id="btn-refresh-tmdb" class="btn-link">Buscar en TMDB con este título</button>
+              <button type="button" id="btn-watch-trailer" class="btn-link hidden"><svg class="icon"><use href="#icon-play"></use></svg>Ver tráiler</button>
+            </div>
+            <div class="form-cols">
+              <div>
+                <label>Año</label>
+                <input id="f-year" inputmode="numeric" maxlength="4">
+              </div>
+              <div id="f-runtime-field">
+                <label id="f-runtime-label">Duración (min)</label>
+                <input id="f-runtime" inputmode="numeric" maxlength="4" placeholder="p.ej. 118">
+              </div>
+              <div id="f-seasons-field" class="hidden">
+                <label>Temporadas</label>
+                <input id="f-seasons" inputmode="numeric" maxlength="3" placeholder="p.ej. 3">
+              </div>
+            </div>
+            <label>Género</label>
+            <div class="multiselect" id="genre-multiselect">
+              <button type="button" class="multiselect-trigger" id="genre-trigger">
+                <span id="genre-trigger-text" class="placeholder">Selecciona géneros...</span>
+                <svg class="icon"><use href="#icon-chevron"></use></svg>
+              </button>
+              <div class="multiselect-panel hidden" id="genre-panel"></div>
+            </div>
+            <input type="hidden" id="f-genres">
+            <label>URL del póster</label>
+            <input id="f-poster" placeholder="https://...">
+          </div>
+        </div>
+
+        <label>Estado</label>
+        <select id="f-status">
+          <option value="pendiente">Pendiente de ver</option>
+          <option value="viendo">En curso (viéndola ahora)</option>
+          <option value="vista">Ya vista</option>
+        </select>
+
+        <div id="platform-field">
+          <label>Plataforma / cómo la viste</label>
+          <select id="f-platform-select"></select>
+          <input id="f-platform-custom" class="hidden" placeholder="Escribe la plataforma">
+          <button type="button" id="btn-check-providers" class="btn-link hidden">¿Dónde está disponible ahora?</button>
+          <p id="providers-status" class="hint"></p>
+          <div id="platform-suggestions" class="chip-row hidden"></div>
+        </div>
+
+        <div id="progress-fields" class="hidden">
+          <label>Progreso</label>
+          <div class="form-cols">
+            <div>
+              <label>Temporada actual</label>
+              <input id="f-current-season" inputmode="numeric" maxlength="3" placeholder="p.ej. 2">
+            </div>
+            <div>
+              <label>Episodio actual</label>
+              <input id="f-current-episode" inputmode="numeric" maxlength="3" placeholder="p.ej. 5">
+            </div>
+          </div>
+        </div>
+
+        <div id="watched-fields" class="hidden">
+          <label>Valoración: <span id="f-rating-value">7</span>/10</label>
+          <input type="range" id="f-rating" min="1" max="10" step="1" value="7">
+          <label>Fecha vista</label>
+          <input type="date" id="f-datewatched">
+          <label>Notas</label>
+          <textarea id="f-notes" rows="3" placeholder="Opinión, comentarios..."></textarea>
+        </div>
+
+        <div class="form-actions">
+          <button type="button" id="f-delete" class="btn danger hidden"><svg class="icon"><use href="#icon-trash"></use></svg>Eliminar</button>
+          <button type="submit" id="f-submit" class="btn primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="bulk-overlay" class="overlay hidden">
+    <div class="modal">
+      <button class="icon-btn close-btn" id="bulk-close"><svg class="icon"><use href="#icon-x"></use></svg></button>
+      <h2>Añadir varias vistas de golpe</h2>
+      <p class="hint">
+        Para cuando no recuerdas bien el detalle: escribe o pega un título por línea. No hace falta año,
+        póster ni orden — se añaden directamente como vistas y luego puedes editar cualquiera si quieres
+        completarla.
+      </p>
+
+      <form id="bulk-form">
+        <label>Tipo</label>
+        <select id="bulk-type">
+          <option value="pelicula">Película</option>
+          <option value="serie">Serie</option>
+        </select>
+
+        <label>¿Dónde o cómo las viste? (se aplica a todas)</label>
+        <select id="bulk-platform"></select>
+        <input id="bulk-platform-custom" class="hidden" placeholder="Escribe la plataforma">
+
+        <label>Títulos (uno por línea)</label>
+        <textarea id="bulk-titles" rows="10" placeholder="El Padrino&#10;Pulp Fiction&#10;Breaking Bad"></textarea>
+
+        <div class="form-actions">
+          <button type="button" id="bulk-cancel" class="btn">Cancelar</button>
+          <button type="button" id="bulk-submit" class="btn primary">Añadir todas</button>
+        </div>
+        <p id="bulk-status" class="status"></p>
+      </form>
+    </div>
+  </div>
+
+  <div id="global-search-overlay" class="overlay hidden">
+    <div class="modal global-search-modal">
+      <div class="search-row">
+        <svg class="icon"><use href="#icon-search"></use></svg>
+        <input id="global-search-input" placeholder="Busca en toda tu colección...">
+        <button class="icon-btn close-btn-inline" id="global-search-close"><svg class="icon"><use href="#icon-x"></use></svg></button>
+      </div>
+      <div id="global-search-results" class="global-search-results"></div>
+      <p id="global-search-empty" class="empty hidden">Sin resultados.</p>
+    </div>
+  </div>
+
+  <div id="wrapped-overlay" class="overlay hidden">
+    <div class="modal wrapped-modal">
+      <button class="icon-btn close-btn" id="wrapped-close"><svg class="icon"><use href="#icon-x"></use></svg></button>
+      <div class="wrapped-header">
+        <h2><svg class="icon"><use href="#icon-gift"></use></svg> Tu resumen anual</h2>
+        <select id="wrapped-year"></select>
+      </div>
+      <div id="wrapped-content" class="wrapped-content"></div>
+    </div>
+  </div>
+
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+</div>
+<script src="renderer.js"></script>
+</body>
+</html>
