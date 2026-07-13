@@ -11,9 +11,11 @@ Construida con [Electron](https://www.electronjs.org/) y JavaScript "vanilla" (s
 - [Qué puedes hacer con la app](#qué-puedes-hacer-con-la-app)
 - [Estructura del proyecto](#estructura-del-proyecto)
 - [Instalación (como usuario)](#instalación-como-usuario)
+- [Cómo actualizar la app sin perder tus datos](#cómo-actualizar-la-app-sin-perder-tus-datos)
 - [Puesta en marcha (como desarrollador)](#puesta-en-marcha-como-desarrollador)
 - [Generar el instalador](#generar-el-instalador)
 - [Conectar con TMDB](#conectar-con-tmdb)
+- [Perfiles: varios usuarios en el mismo ordenador](#perfiles-varios-usuarios-en-el-mismo-ordenador)
 - [Copias de seguridad: cómo funcionan y cómo restaurarlas](#copias-de-seguridad-cómo-funcionan-y-cómo-restaurarlas)
 - [Dónde se guardan tus datos](#dónde-se-guardan-tus-datos)
 - [Tecnologías](#tecnologías)
@@ -35,14 +37,34 @@ Construida con [Electron](https://www.electronjs.org/) y JavaScript "vanilla" (s
 - Autocompletar título, año, género, duración, temporadas y póster al buscar.
 - Ver en qué plataformas de streaming está disponible cada título.
 - Ver el tráiler con un clic.
-- Recomendaciones automáticas basadas en lo que ya has valorado.
+- Recomendaciones automáticas en la pantalla de Resumen: mezclan títulos parecidos a lo que has
+  valorado con novedades en tendencia (para no quedarte siempre con "más de lo mismo"), con una
+  pequeña cuota de series entre las películas. El botón de recargar muestra selecciones distintas
+  cada vez, sin repetirse hasta agotar las opciones disponibles.
 - Panel de "Próximos estrenos" con la fecha del próximo episodio de las series que sigues.
+
+**Recomendar a otras personas**
+- Apartado **Recomendar**: crea listas de recomendaciones pensadas para compartir con otra gente,
+  con un menú de opciones para elegir qué incluir (películas, series o ambas; géneros concretos;
+  cuántos títulos). Se nutren sobre todo de tus mejor valoradas y tus pendientes con más
+  posibilidades (según tus géneros favoritos), añadiendo solo una pequeña minoría de
+  descubrimiento para dar variedad.
+- Cada lista se genera como una **imagen** (pósters en cuadrícula, título y tu nombre de perfil)
+  lista para compartir, y queda guardada con fecha en un historial dentro del propio apartado,
+  desde donde puedes volver a abrirla o borrarla.
 
 **Resumen y estadísticas**
 - Pendientes, vistas, películas y series vistas por separado, horas vistas (películas y series por separado), valoración media, antigüedad media de tus pendientes y racha de días seguidos viendo algo.
 - Gráficas de géneros, plataformas, valoraciones, actividad mensual, vistas por año y década de estreno.
 - Aviso de aniversario ("hace un año viste...") y resumen anual estilo "wrapped".
 - "¿Qué veo hoy?": elige al azar un título de tus pendientes.
+
+**Perfiles**
+- Varios usuarios en el mismo ordenador, cada uno con su propia lista, papelera, valoraciones,
+  ajustes y copias de seguridad, totalmente independientes entre sí.
+- Al abrir la app (o al cambiar de usuario) siempre se pregunta "¿Quién ve ahora?".
+- Borrar un perfil no es definitivo: queda en "Perfiles eliminados" 30 días, listo para restaurarse
+  con un clic sin perder ni una película.
 
 **Personalización**
 - Tema claro/oscuro, color de acento (6 disponibles), color de las gráficas, densidad de las listas y animaciones activables/desactivables.
@@ -63,7 +85,7 @@ PeliculasApp/
 │
 ├── renderer/                 Todo lo que se ve y ejecuta dentro de la ventana.
 │   ├── index.html             Estructura de todas las pantallas (Resumen, Pendientes,
-│   │                           Vistas, Papelera, Ajustes) y los modales.
+│   │                           Vistas, Papelera, Recomendar, Ajustes) y los modales.
 │   ├── renderer.js             Toda la lógica de la interfaz: render de listas y gráficas,
 │   │                           filtros, formularios, ajustes, animaciones.
 │   ├── style.css               Estilos, temas, animaciones y diseño responsive.
@@ -94,6 +116,35 @@ En esa misma Release también encontrarás una versión **portable**
 > La aplicación funciona sin conexión para llevar tu lista, pero necesita una clave gratuita de
 > TMDB para el autocompletado, pósters, tráilers, recomendaciones y próximos estrenos. Ver
 > [Conectar con TMDB](#conectar-con-tmdb).
+
+---
+
+## Cómo actualizar la app sin perder tus datos
+
+Tus películas, series, perfiles, valoraciones y copias de seguridad **no viven dentro de la
+carpeta donde se instala la app**, sino en tu carpeta de usuario de Windows (ver
+[Dónde se guardan tus datos](#dónde-se-guardan-tus-datos)). Instalar una versión nueva **no toca
+esa carpeta para nada**, así que actualizar es seguro:
+
+1. Ve a la [**última Release**](https://github.com/Gabriel-Luca07/peliculas-series-app/releases/latest)
+   y descarga el instalador nuevo (`Peliculas y Series Setup X.X.X.exe`).
+2. Ejecútalo igual que la primera vez, eligiendo la misma carpeta de instalación (el asistente la
+   recuerda). El instalador reemplaza los archivos del programa, sin preguntar nada sobre tus
+   datos porque no los toca.
+3. Abre la app: tus perfiles, tu lista de pendientes/vistas y tus copias de seguridad siguen
+   exactamente donde estaban.
+
+Si usas la versión **portable** en vez de instalarla, simplemente sustituye el `.exe` antiguo por
+el nuevo (o guarda el nuevo en otra carpeta y bórralo cuando compruebes que todo va bien) — como el
+`.exe` portable no guarda nada dentro de sí mismo, tampoco hay riesgo de perder datos.
+
+> **No hace falta** exportar ni hacer copia de seguridad manual antes de actualizar solo por el
+> hecho de actualizar. Aun así, si quieres ir sobre seguro (por ejemplo, en el ordenador donde
+> tienes toda tu colección metida), nunca está de más pulsar Ajustes → "Hacer copia ahora" antes de
+> instalar la versión nueva.
+
+**¿Cómo sé si tengo la última versión?** Ajustes muestra el número de versión instalada
+(abajo del todo) — compáralo con el de la última Release en GitHub.
 
 ---
 
@@ -136,21 +187,44 @@ ejecuta el instalador en un ordenador nuevo; es esperable y no indica ningún pr
    API (Configuración → API).
 2. En la app, ve a **Ajustes → Conexión con TMDB**, pega la clave, elige idioma y región, y guarda.
 3. A partir de ese momento, buscar un título autocompleta sus datos y desbloquea plataformas,
-   tráiler, recomendaciones y próximos estrenos.
+   tráiler, recomendaciones, próximos estrenos y el apartado Recomendar (que usa la parte de
+   "descubrimiento" de las recomendaciones para armar tus listas para compartir).
 
 Sin clave de TMDB la app sigue funcionando con normalidad para llevar tu lista de forma manual;
 simplemente no tendrás esas funciones adicionales.
 
 ---
 
+## Perfiles: varios usuarios en el mismo ordenador
+
+Al abrir la app siempre aparece la pantalla "¿Quién ve ahora?" para elegir el perfil (o crear uno
+nuevo si es la primera vez). Cada perfil tiene su propia lista, papelera, ajustes y copias de
+seguridad — completamente independientes entre sí, como si cada uno tuviera su propia instalación
+de la app dentro de la misma.
+
+Puedes cambiar de perfil en cualquier momento con el botón de tu perfil (arriba a la izquierda),
+que también da acceso a **"Gestionar perfiles"** para crear, renombrar o eliminar perfiles.
+
+**Eliminar un perfil no es definitivo.** Para evitar borrados accidentales, hay que escribir el
+nombre exacto del perfil para confirmar, y aun así el perfil no se borra al momento: queda
+guardado en **"Perfiles eliminados"** (dentro de "Gestionar perfiles") durante 30 días, listo para
+restaurarse con un clic, con toda su lista y sus copias de seguridad intactas. Pasado ese plazo se
+borra en segundo plano automáticamente.
+
+---
+
 ## Copias de seguridad: cómo funcionan y cómo restaurarlas
+
+Las copias de seguridad son **por perfil**: si tienes varios perfiles, cada uno hace las suyas por
+su cuenta con su propia configuración (activadas/desactivadas, días de retención), y restaurar una
+copia en un perfil no afecta para nada a los demás.
 
 ### Automáticas
 
-Activadas por defecto (Ajustes → Copia de seguridad y datos). Cada vez que abres la app, si no
-existe ya una copia de hoy, se guarda una en una carpeta `backups` dentro de tus datos, y se borran
-las que tengan más de N días (configurable, 14 por defecto). También puedes forzar una copia en
-cualquier momento con el botón "Hacer copia ahora".
+Activadas por defecto (Ajustes → Copia de seguridad y datos, dentro del perfil correspondiente).
+Cada vez que activas ese perfil, si no existe ya una copia de hoy, se guarda una en su carpeta
+`backups`, y se borran las que tengan más de N días (configurable, 14 por defecto). También puedes
+forzar una copia en cualquier momento con el botón "Hacer copia ahora".
 
 ### Manuales
 
@@ -164,31 +238,42 @@ Los botones "Exportar" e "Importar" hacen lo mismo pero eligiendo tú el archivo
 2. Ajustes → **"Importar"** y selecciona el archivo que quieras restaurar.
 3. Confirma el aviso: importar **reemplaza** tu lista actual por la del archivo, no la mezcla.
 
-Esto solo restaura tu lista de películas/series; no afecta a la Papelera ni a tus ajustes.
+Esto solo restaura tu lista de películas/series; no afecta a la Papelera, a tus listas de
+Recomendar ni a tus ajustes.
 
 ### Llevar tus datos a otro ordenador
 
-Cada instalación es independiente: en un ordenador nuevo, la app empieza con la lista vacía y su
-propia carpeta de copias, sin sincronizarse con las de otros ordenadores. Para trasladar tus datos,
-usa Exportar en el ordenador de origen e Importar en el de destino (o copia manualmente la carpeta
-de datos completa, ver más abajo).
+Cada instalación es independiente: en un ordenador nuevo, la app empieza sin perfiles, sin
+sincronizarse con las de otros ordenadores. Para trasladar tu lista, usa Exportar en el ordenador
+de origen e Importar en el de destino (creando antes el mismo perfil), o copia manualmente la
+carpeta del perfil completa de un ordenador a otro (ver más abajo) para llevarte también la
+papelera, las copias y las listas de Recomendar.
 
 ---
 
 ## Dónde se guardan tus datos
 
-Todo se guarda localmente, nunca en un servidor externo:
+Todo se guarda localmente, nunca en un servidor externo. Desde la versión con perfiles, cada
+usuario tiene su propia subcarpeta:
 
 ```
 %APPDATA%\peliculas-app\
-├── movies.json     Tu lista de películas y series.
-├── trash.json      Papelera (elementos eliminados, purga automática a los 30 días).
-├── settings.json   Clave de TMDB, idioma, región y preferencias de copia de seguridad.
-└── backups\        Copias de seguridad automáticas y manuales.
+├── profiles.json           Lista de perfiles (nombre, color) y cuál fue el último activo.
+├── global-settings.json    Clave de TMDB (compartida entre perfiles).
+├── deleted-profiles.json   Registro de los perfiles eliminados en los últimos 30 días.
+├── deleted-profiles\       Carpetas de esos perfiles eliminados, a la espera de restaurarse.
+└── profiles\
+    └── <id-del-perfil>\
+        ├── movies.json       Tu lista de películas y series.
+        ├── trash.json        Papelera (elementos eliminados, purga automática a los 30 días).
+        ├── settings.json     Idioma, región y preferencias de copia de seguridad de este perfil.
+        ├── backups\          Copias de seguridad automáticas y manuales de este perfil.
+        ├── share-lists.json  Historial de listas generadas en el apartado Recomendar.
+        └── share-images\     Las imágenes PNG generadas para esas listas.
 ```
 
-En Windows normalmente es `C:\Users\<tu usuario>\AppData\Roaming\peliculas-app\`. Puedes abrir esta
-carpeta directamente desde Ajustes → "Abrir carpeta de datos".
+En Windows normalmente es `C:\Users\<tu usuario>\AppData\Roaming\peliculas-app\`. Puedes abrir la
+carpeta del perfil activo directamente desde Ajustes → "Abrir carpeta de datos".
 
 ---
 

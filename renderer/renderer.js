@@ -44,12 +44,23 @@ let settings = { tmdbApiKey: '' };
 let searchTimer = null;
 let editingId = null;
 let csvParsed = null;
+let activeProfileId = null;
+let allProfiles = [];
+
+function pk(key) { return `p:${activeProfileId}:${key}`; }
 
 let PAGE_SIZE = 48;
 let pendientesPageSize = PAGE_SIZE;
 let vistasPageSize = PAGE_SIZE;
 let recommendationsCache = null;
+let recommendationsMoviePool = null;
+let recommendationsTvPool = null;
+let recommendationsSignature = null;
+const RECS_DISPLAY_COUNT = 16;
+const RECS_TV_QUOTA = 2;
 let upcomingCache = null;
+let shareLists = [];
+let shareConfigPreview = null;
 let trash = [];
 const TRASH_RETENTION_DAYS = 30;
 const selectionMode = { pendientes: false, vistas: false };
@@ -72,6 +83,7 @@ function getPending() { return movies.filter((m) => m.status === 'pendiente' || 
 function getWatched() { return movies.filter((m) => m.status === 'vista'); }
 
 async function init() {
+  await resolveActiveProfile();
   initTheme();
   initAppearance();
   loadPlatforms();
@@ -80,6 +92,7 @@ async function init() {
   movies = await window.api.loadMovies();
   settings = await window.api.loadSettings();
   trash = await window.api.loadTrash();
+  shareLists = await window.api.listShareLists();
   await purgeOldTrash();
   $('#tmdb-key').value = settings.tmdbApiKey || '';
   $('#tmdb-language').value = settings.language || 'es-ES';
@@ -90,11 +103,321 @@ async function init() {
   renderPlatformsList();
   renderAll();
   renderTrash();
+  renderShareListsGrid();
   updateNavIndicator();
-  switchView(localStorage.getItem('pref-start-view') || 'dashboard');
-  if (localStorage.getItem('pref-recs-enabled') !== 'false') loadRecommendations();
+  switchView(localStorage.getItem(pk('pref-start-view')) || 'dashboard');
+  if (localStorage.getItem(pk('pref-recs-enabled')) !== 'false') loadRecommendations();
   loadUpcomingReleases();
   window.api.getAppVersion().then((v) => { $('#app-version').textContent = `v${v}`; });
+  updateProfileBadge();
+}
+
+/* ---------- Profiles ---------- */
+
+function profileInitial(name) {
+  return (name || '?').trim().charAt(0).toUpperCase() || '?';
+}
+
+async function resolveActiveProfile() {
+  const data = await window.api.listProfiles();
+  allProfiles = data.profiles || [];
+  if (sessionStorage.getItem('skipProfilePicker') === '1') {
+    sessionStorage.removeItem('skipProfilePicker');
+    const last = allProfiles.find((p) => p.id === data.lastActiveProfileId);
+    if (last) {
+      activeProfileId = last.id;
+      return;
+    }
+  }
+  const chosen = await showProfilePicker({ forced: true });
+  activeProfileId = chosen.id;
+  await window.api.setActiveProfile(chosen.id);
+}
+
+function updateProfileBadge() {
+  const profile = allProfiles.find((p) => p.id === activeProfileId);
+  const nameEl = $('#profile-name');
+  const avatarEl = $('#profile-avatar');
+  if (!nameEl || !avatarEl || !profile) return;
+  nameEl.textContent = profile.name;
+  avatarEl.textContent = profileInitial(profile.name);
+  avatarEl.style.background = `var(--${profile.color || 'series-1'})`;
+}
+
+const PROFILE_COLORS = ['series-1', 'series-2', 'series-3', 'series-4', 'series-5', 'series-6', 'series-7', 'series-8'];
+
+function renderProfileGrid(mode) {
+  const grid = $('#profile-grid');
+  grid.innerHTML = allProfiles.map((p) => `
+    <div class="profile-card" data-id="${p.id}">
+      <div class="profile-card-avatar" style="background:var(--${p.color || 'series-1'})">${escapeHtml(profileInitial(p.name))}</div>
+      <div class="profile-card-name">${escapeHtml(p.name)}</div>
+      ${mode === 'manage' ? `
+        <div class="profile-card-actions">
+          <button type="button" class="profile-card-rename" data-id="${p.id}" title="Renombrar">✎</button>
+          <button type="button" class="profile-card-delete" data-id="${p.id}" title="Eliminar">✕</button>
+        </div>
+      ` : ''}
+    </div>
+  `).join('') + `
+    <div class="profile-card profile-card-add" id="profile-add-card">
+      <div class="profile-card-avatar profile-card-avatar-add">+</div>
+      <div class="profile-card-name">Nuevo perfil</div>
+    </div>
+  `;
+}
+
+function showProfilePicker({ forced }) {
+  return new Promise((resolve) => {
+    const overlay = $('#profile-overlay');
+    const closeBtn = $('#profile-close-btn');
+    const manageBtn = $('#profile-manage-btn');
+    const form = $('#profile-form');
+    const deleteConfirm = $('#profile-delete-confirm');
+    const deleteNameLabel = $('#profile-delete-name-label');
+    const deleteConfirmInput = $('#profile-delete-confirm-input');
+    const deleteConfirmBtn = $('#profile-delete-confirm-btn');
+    const deleteCancelBtn = $('#profile-delete-cancel');
+    const deletedSection = $('#profile-deleted-section');
+    const deletedList = $('#profile-deleted-list');
+    let mode = 'pick';
+    let pendingDeleteProfile = null;
+    let deletedProfiles = [];
+
+    closeBtn.classList.toggle('hidden', forced);
+    manageBtn.classList.toggle('hidden', allProfiles.length === 0);
+    manageBtn.textContent = 'Gestionar perfiles';
+    form.classList.add('hidden');
+    deleteConfirm.classList.add('hidden');
+    deletedSection.classList.add('hidden');
+
+    function renderGrid() {
+      renderProfileGrid(mode);
+    }
+    renderGrid();
+
+    function renderDeletedList() {
+      deletedSection.classList.toggle('hidden', mode !== 'manage' || deletedProfiles.length === 0);
+      deletedList.innerHTML = deletedProfiles.map((p) => {
+        const days = Math.floor((Date.now() - new Date(p.deletedAt).getTime()) / 86400000);
+        const daysLeft = Math.max(30 - days, 0);
+        return `
+          <div class="profile-deleted-item" data-id="${p.id}">
+            <div class="profile-deleted-avatar" style="background:var(--${p.color || 'series-1'})">${escapeHtml(profileInitial(p.name))}</div>
+            <div class="profile-deleted-info">
+              <div class="profile-deleted-name">${escapeHtml(p.name)}</div>
+              <div class="profile-deleted-meta">Eliminado hace ${days} día${days === 1 ? '' : 's'} · disponible ${daysLeft} día${daysLeft === 1 ? '' : 's'} más</div>
+            </div>
+            <div class="profile-deleted-actions">
+              <button type="button" class="btn profile-restore-btn" data-id="${p.id}">Restaurar</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+      deletedList.querySelectorAll('.profile-restore-btn').forEach((btn) => {
+        btn.addEventListener('click', () => restoreDeletedProfile(btn.dataset.id));
+      });
+    }
+
+    async function loadDeletedProfiles() {
+      deletedProfiles = await window.api.listDeletedProfiles();
+      renderDeletedList();
+    }
+
+    async function restoreDeletedProfile(id) {
+      const res = await window.api.restoreProfile(id);
+      if (res.error) return;
+      deletedProfiles = deletedProfiles.filter((p) => p.id !== id);
+      allProfiles.push(res.profile);
+      renderGrid();
+      renderDeletedList();
+      showToast(`${res.profile.name} restaurado`);
+    }
+
+    function cleanup() {
+      overlay.removeEventListener('click', onGridClick);
+      manageBtn.removeEventListener('click', onToggleManage);
+      closeBtn.removeEventListener('click', onClose);
+      $('#profile-form-cancel').removeEventListener('click', onFormCancel);
+      $('#profile-form').removeEventListener('submit', onFormSubmit);
+      deleteConfirmInput.removeEventListener('input', onDeleteConfirmInput);
+      deleteConfirmBtn.removeEventListener('click', onDeleteConfirmClick);
+      deleteCancelBtn.removeEventListener('click', closeDeleteConfirm);
+      hideOverlay(overlay);
+    }
+
+    function onToggleManage() {
+      mode = mode === 'manage' ? 'pick' : 'manage';
+      manageBtn.textContent = mode === 'manage' ? 'Listo' : 'Gestionar perfiles';
+      renderGrid();
+      if (mode === 'manage') {
+        loadDeletedProfiles();
+      } else {
+        deletedSection.classList.add('hidden');
+      }
+    }
+
+    function openDeleteConfirm(profile) {
+      form.classList.add('hidden');
+      pendingDeleteProfile = profile;
+      deleteNameLabel.textContent = profile.name;
+      deleteConfirmInput.value = '';
+      deleteConfirmBtn.disabled = true;
+      deleteConfirm.classList.remove('hidden');
+      deleteConfirmInput.focus();
+    }
+
+    function closeDeleteConfirm() {
+      pendingDeleteProfile = null;
+      deleteConfirm.classList.add('hidden');
+    }
+
+    function onDeleteConfirmInput() {
+      deleteConfirmBtn.disabled = !pendingDeleteProfile
+        || deleteConfirmInput.value.trim() !== pendingDeleteProfile.name;
+    }
+
+    async function onDeleteConfirmClick() {
+      if (!pendingDeleteProfile) return;
+      const profile = pendingDeleteProfile;
+      const res = await window.api.deleteProfile(profile.id);
+      if (res.error === 'LAST_PROFILE') {
+        alert('No puedes eliminar el único perfil.');
+        return;
+      }
+      allProfiles = allProfiles.filter((p) => p.id !== profile.id);
+      closeDeleteConfirm();
+      renderGrid();
+      await loadDeletedProfiles();
+      showToast(`${profile.name} eliminado. Puedes restaurarlo desde "Perfiles eliminados".`);
+      if (res.wasActive) {
+        cleanup();
+        location.reload();
+      }
+    }
+
+    function openCreateForm() {
+      closeDeleteConfirm();
+      form.classList.remove('hidden');
+      form.dataset.editId = '';
+      $('#profile-form-title').textContent = 'Nuevo perfil';
+      $('#profile-form-name').value = '';
+      renderColorSwatches(PROFILE_COLORS[allProfiles.length % PROFILE_COLORS.length]);
+      $('#profile-form-name').focus();
+    }
+
+    function openEditForm(profile) {
+      closeDeleteConfirm();
+      form.classList.remove('hidden');
+      form.dataset.editId = profile.id;
+      $('#profile-form-title').textContent = 'Renombrar perfil';
+      $('#profile-form-name').value = profile.name;
+      renderColorSwatches(profile.color || 'series-1');
+      $('#profile-form-name').focus();
+    }
+
+    function renderColorSwatches(selected) {
+      const wrap = $('#profile-form-colors');
+      wrap.innerHTML = PROFILE_COLORS.map((c) => `
+        <button type="button" class="profile-color-swatch${c === selected ? ' selected' : ''}" data-color="${c}" style="background:var(--${c})"></button>
+      `).join('');
+      wrap.dataset.selected = selected;
+      Array.from(wrap.querySelectorAll('.profile-color-swatch')).forEach((btn) => {
+        btn.addEventListener('click', () => {
+          wrap.dataset.selected = btn.dataset.color;
+          Array.from(wrap.querySelectorAll('.profile-color-swatch')).forEach((b) => b.classList.toggle('selected', b === btn));
+        });
+      });
+    }
+
+    async function onGridClick(e) {
+      if (e.target.id === 'profile-overlay' && !forced) {
+        cleanup();
+        return;
+      }
+      const renameBtn = e.target.closest('.profile-card-rename');
+      const deleteBtn = e.target.closest('.profile-card-delete');
+      const addCard = e.target.closest('#profile-add-card');
+      const card = e.target.closest('.profile-card:not(.profile-card-add)');
+
+      if (renameBtn) {
+        const profile = allProfiles.find((p) => p.id === renameBtn.dataset.id);
+        if (profile) openEditForm(profile);
+        return;
+      }
+      if (deleteBtn) {
+        const profile = allProfiles.find((p) => p.id === deleteBtn.dataset.id);
+        if (profile) openDeleteConfirm(profile);
+        return;
+      }
+      if (addCard) {
+        openCreateForm();
+        return;
+      }
+      if (card && deleteConfirm.classList.contains('hidden')) {
+        const profile = allProfiles.find((p) => p.id === card.dataset.id);
+        if (!profile) return;
+        form.classList.add('hidden');
+        if (forced) {
+          cleanup();
+          resolve(profile);
+          return;
+        }
+        if (profile.id === activeProfileId) {
+          cleanup();
+          return;
+        }
+        await window.api.setActiveProfile(profile.id);
+        sessionStorage.setItem('skipProfilePicker', '1');
+        cleanup();
+        location.reload();
+      }
+    }
+
+    function onFormCancel() {
+      form.classList.add('hidden');
+    }
+
+    async function onFormSubmit(e) {
+      e.preventDefault();
+      const name = $('#profile-form-name').value.trim();
+      if (!name) return;
+      const color = $('#profile-form-colors').dataset.selected;
+      const editId = form.dataset.editId;
+      if (editId) {
+        await window.api.renameProfile(editId, name);
+        const profile = allProfiles.find((p) => p.id === editId);
+        if (profile) profile.name = name;
+        form.classList.add('hidden');
+        renderGrid();
+        return;
+      }
+      const created = await window.api.createProfile(name, color);
+      allProfiles.push(created);
+      form.classList.add('hidden');
+      if (forced) {
+        cleanup();
+        resolve(created);
+        return;
+      }
+      renderGrid();
+    }
+
+    function onClose() {
+      cleanup();
+    }
+
+    overlay.addEventListener('click', onGridClick);
+    manageBtn.addEventListener('click', onToggleManage);
+    closeBtn.addEventListener('click', onClose);
+    $('#profile-form-cancel').addEventListener('click', onFormCancel);
+    $('#profile-form').addEventListener('submit', onFormSubmit);
+    deleteConfirmInput.addEventListener('input', onDeleteConfirmInput);
+    deleteConfirmBtn.addEventListener('click', onDeleteConfirmClick);
+    deleteCancelBtn.addEventListener('click', closeDeleteConfirm);
+
+    showOverlay(overlay);
+  });
 }
 
 /* ---------- Theme ---------- */
@@ -106,25 +429,25 @@ function applyTheme(theme) {
 }
 
 function initTheme() {
-  const saved = localStorage.getItem('theme') || 'dark';
+  const saved = localStorage.getItem(pk('theme')) || 'dark';
   applyTheme(saved);
 }
 
 function toggleTheme() {
   const current = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
   const next = current === 'light' ? 'dark' : 'light';
-  localStorage.setItem('theme', next);
+  localStorage.setItem(pk('theme'), next);
   applyTheme(next);
 }
 
 /* ---------- Appearance (accent, density, motion) ---------- */
 
 function initAppearance() {
-  const accent = localStorage.getItem('accent') || 'rojo';
-  const density = localStorage.getItem('density') || 'comoda';
-  const savedMotion = localStorage.getItem('motion');
+  const accent = localStorage.getItem(pk('accent')) || 'rojo';
+  const density = localStorage.getItem(pk('density')) || 'comoda';
+  const savedMotion = localStorage.getItem(pk('motion'));
   const motion = savedMotion || (window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'reduced' : 'full');
-  const chartColor = localStorage.getItem('chart-color') || 'azul';
+  const chartColor = localStorage.getItem(pk('chart-color')) || 'azul';
 
   document.documentElement.setAttribute('data-accent', accent);
   document.documentElement.setAttribute('data-density', density);
@@ -138,35 +461,35 @@ function initAppearance() {
 }
 
 function setAccent(accent) {
-  localStorage.setItem('accent', accent);
+  localStorage.setItem(pk('accent'), accent);
   document.documentElement.setAttribute('data-accent', accent);
   $$('.swatch[data-accent]').forEach((s) => s.classList.toggle('selected', s.dataset.accent === accent));
 }
 
 function setChartColor(chartColor) {
-  localStorage.setItem('chart-color', chartColor);
+  localStorage.setItem(pk('chart-color'), chartColor);
   document.documentElement.setAttribute('data-chart-color', chartColor);
   $$('.swatch[data-chart-color]').forEach((s) => s.classList.toggle('selected', s.dataset.chartColor === chartColor));
 }
 
 function setDensity(density) {
-  localStorage.setItem('density', density);
+  localStorage.setItem(pk('density'), density);
   document.documentElement.setAttribute('data-density', density);
   $$('.segment').forEach((s) => s.classList.toggle('active', s.dataset.density === density));
 }
 
 function setMotion(enabled) {
   const value = enabled ? 'full' : 'reduced';
-  localStorage.setItem('motion', value);
+  localStorage.setItem(pk('motion'), value);
   document.documentElement.setAttribute('data-motion', value);
 }
 
 function resetAppearance() {
-  localStorage.removeItem('accent');
-  localStorage.removeItem('density');
-  localStorage.removeItem('motion');
-  localStorage.removeItem('theme');
-  localStorage.removeItem('chart-color');
+  localStorage.removeItem(pk('accent'));
+  localStorage.removeItem(pk('density'));
+  localStorage.removeItem(pk('motion'));
+  localStorage.removeItem(pk('theme'));
+  localStorage.removeItem(pk('chart-color'));
   initTheme();
   initAppearance();
 }
@@ -174,13 +497,13 @@ function resetAppearance() {
 /* ---------- Behavior preferences ---------- */
 
 function initBehaviorPrefs() {
-  const startView = localStorage.getItem('pref-start-view') || 'dashboard';
-  const sortPendientes = localStorage.getItem('pref-sort-pendientes') || 'added-desc';
-  const sortVistas = localStorage.getItem('pref-sort-vistas') || 'date-desc';
-  const pageSize = Number(localStorage.getItem('pref-page-size')) || 48;
-  const deleteMode = localStorage.getItem('pref-delete-mode') || 'undo';
-  const recsEnabled = localStorage.getItem('pref-recs-enabled') !== 'false';
-  const annivEnabled = localStorage.getItem('pref-anniv-enabled') !== 'false';
+  const startView = localStorage.getItem(pk('pref-start-view')) || 'dashboard';
+  const sortPendientes = localStorage.getItem(pk('pref-sort-pendientes')) || 'added-desc';
+  const sortVistas = localStorage.getItem(pk('pref-sort-vistas')) || 'date-desc';
+  const pageSize = Number(localStorage.getItem(pk('pref-page-size'))) || 48;
+  const deleteMode = localStorage.getItem(pk('pref-delete-mode')) || 'undo';
+  const recsEnabled = localStorage.getItem(pk('pref-recs-enabled')) !== 'false';
+  const annivEnabled = localStorage.getItem(pk('pref-anniv-enabled')) !== 'false';
 
   $('#pref-start-view').value = startView;
   $('#pref-sort-pendientes').value = sortPendientes;
@@ -203,7 +526,7 @@ const PANEL_KEYS = ['genres', 'platforms', 'ratings', 'activity', 'years', 'eras
 
 function initPanelVisibility() {
   PANEL_KEYS.forEach((key) => {
-    const enabled = localStorage.getItem(`panel-${key}`) !== 'false';
+    const enabled = localStorage.getItem(pk(`panel-${key}`)) !== 'false';
     const el = $(`#panel-${key}`);
     if (el) el.classList.toggle('hidden', !enabled);
     const toggle = document.querySelector(`.panel-toggle[data-panel="${key}"]`);
@@ -212,7 +535,7 @@ function initPanelVisibility() {
 }
 
 function setPanelVisibility(key, enabled) {
-  localStorage.setItem(`panel-${key}`, String(enabled));
+  localStorage.setItem(pk(`panel-${key}`), String(enabled));
   const el = $(`#panel-${key}`);
   if (el) el.classList.toggle('hidden', !enabled);
 }
@@ -221,7 +544,7 @@ function setPanelVisibility(key, enabled) {
 
 function loadPlatforms() {
   try {
-    const saved = JSON.parse(localStorage.getItem('customPlatforms') || 'null');
+    const saved = JSON.parse(localStorage.getItem(pk('customPlatforms')) || 'null');
     if (Array.isArray(saved) && saved.length) PLATFORMS = saved;
   } catch (err) {
     PLATFORMS = [...DEFAULT_PLATFORMS];
@@ -229,7 +552,7 @@ function loadPlatforms() {
 }
 
 function savePlatforms() {
-  localStorage.setItem('customPlatforms', JSON.stringify(PLATFORMS));
+  localStorage.setItem(pk('customPlatforms'), JSON.stringify(PLATFORMS));
 }
 
 function renderPlatformsList() {
@@ -545,13 +868,13 @@ function renderDashboard() {
 
 function renderAnniversaryBanner(watched) {
   const banner = $('#anniversary-banner');
-  if (localStorage.getItem('pref-anniv-enabled') === 'false') {
+  if (localStorage.getItem(pk('pref-anniv-enabled')) === 'false') {
     banner.classList.add('hidden');
     return;
   }
   const today = new Date();
   const todayKey = today.toISOString().slice(0, 10);
-  if (localStorage.getItem('anniv-dismissed') === todayKey) {
+  if (localStorage.getItem(pk('anniv-dismissed')) === todayKey) {
     banner.classList.add('hidden');
     return;
   }
@@ -574,38 +897,106 @@ function renderAnniversaryBanner(watched) {
   `;
   banner.classList.remove('hidden');
   banner.querySelector('.anniv-dismiss').addEventListener('click', () => {
-    localStorage.setItem('anniv-dismissed', todayKey);
+    localStorage.setItem(pk('anniv-dismissed'), todayKey);
     banner.classList.add('hidden');
   });
 }
 
 /* ---------- Recommendations ---------- */
 
-async function loadRecommendations(force = false) {
-  if (recommendationsCache && !force) { renderRecommendationsSection(); return; }
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function makePager() {
+  return { shuffled: null, cursor: 0 };
+}
+const moviePager = makePager();
+const tvPager = makePager();
+
+function nextPoolPage(pool, pager, count) {
+  if (!pool || !pool.length || count <= 0) return [];
+  if (pool.length <= count) return shuffle(pool);
+  if (!pager.shuffled || pager.cursor >= pager.shuffled.length) {
+    pager.shuffled = shuffle(pool);
+    pager.cursor = 0;
+  }
+  let page = pager.shuffled.slice(pager.cursor, pager.cursor + count);
+  pager.cursor += count;
+  if (page.length < count) {
+    const remaining = pool.filter((r) => !page.some((p) => p.tmdbId === r.tmdbId));
+    page = page.concat(shuffle(remaining).slice(0, count - page.length));
+    pager.shuffled = null;
+    pager.cursor = 0;
+  }
+  return page;
+}
+
+function nextRecommendationsPage() {
+  const tvCount = recommendationsTvPool && recommendationsTvPool.length
+    ? Math.min(RECS_TV_QUOTA, recommendationsTvPool.length) : 0;
+  const movieCount = RECS_DISPLAY_COUNT - tvCount;
+  const moviePage = nextPoolPage(recommendationsMoviePool, moviePager, movieCount);
+  const tvPage = nextPoolPage(recommendationsTvPool, tvPager, tvCount);
+  return shuffle([...moviePage, ...tvPage]);
+}
+
+async function loadRecommendations() {
   const rated = getWatched()
     .filter((m) => m.rating && m.tmdbId)
     .sort((a, b) => b.rating - a.rating)
     .slice(0, 4);
-  if (!rated.length) {
-    recommendationsCache = [];
+  const signature = rated.map((m) => `${m.tmdbId}:${m.mediaType}:${m.rating}`).join(',');
+  if (signature !== recommendationsSignature) {
+    recommendationsMoviePool = null;
+    recommendationsTvPool = null;
+    recommendationsSignature = signature;
+  }
+
+  if (recommendationsMoviePool && recommendationsTvPool) {
+    recommendationsCache = nextRecommendationsPage();
     renderRecommendationsSection();
     return;
   }
+
   const existingTmdbIds = new Set(movies.filter((m) => m.tmdbId).map((m) => m.tmdbId));
-  const seen = new Set();
-  const results = [];
-  for (const m of rated) {
-    const res = await window.api.getRecommendations(m.tmdbId, m.mediaType);
-    if (res && res.results) {
-      res.results.forEach((r) => {
-        if (existingTmdbIds.has(r.tmdbId) || seen.has(r.tmdbId)) return;
-        seen.add(r.tmdbId);
-        results.push(r);
-      });
+  const seenMovie = new Set();
+  const seenTv = new Set();
+  const moviePool = [];
+  const tvPool = [];
+
+  function addResult(r) {
+    if (existingTmdbIds.has(r.tmdbId)) return;
+    if (r.mediaType === 'tv') {
+      if (seenTv.has(r.tmdbId)) return;
+      seenTv.add(r.tmdbId);
+      tvPool.push(r);
+    } else {
+      if (seenMovie.has(r.tmdbId)) return;
+      seenMovie.add(r.tmdbId);
+      moviePool.push(r);
     }
   }
-  recommendationsCache = results.slice(0, 10);
+
+  for (const m of rated) {
+    const res = await window.api.getRecommendations(m.tmdbId, m.mediaType);
+    if (res && res.results) res.results.forEach(addResult);
+  }
+
+  const trending = await window.api.getTrending();
+  if (trending && !trending.error) {
+    (trending.movies || []).forEach(addResult);
+    (trending.tv || []).forEach(addResult);
+  }
+
+  recommendationsMoviePool = moviePool;
+  recommendationsTvPool = tvPool;
+  recommendationsCache = nextRecommendationsPage();
   renderRecommendationsSection();
 }
 
@@ -635,6 +1026,442 @@ function renderRecommendationsSection() {
       await applyTmdbResultToForm(item);
     });
   });
+}
+
+/* ---------- Share recommendation lists ---------- */
+
+let shareTypeSelection = new Set(['pelicula', 'serie']);
+let shareGenreSelection = new Set();
+const sharePagers = { rated: makePager(), pending: makePager(), discovery: makePager() };
+let sharePreviewSignature = null;
+
+function toShareItem(m, source) {
+  if (m.mediaType) {
+    return { tmdbId: m.tmdbId, title: m.title, year: m.year, poster: m.poster, type: m.mediaType === 'tv' ? 'serie' : 'pelicula', source };
+  }
+  return { tmdbId: m.tmdbId || null, title: m.title, year: m.year, poster: m.poster, type: m.type, source };
+}
+
+function buildShareList(options) {
+  const wantMovie = options.types.has('pelicula');
+  const wantTv = options.types.has('serie');
+  const typeMatches = (m) => (m.type === 'pelicula' && wantMovie) || (m.type === 'serie' && wantTv);
+  const genreMatches = (m) => !options.genres.size || (m.genres || []).some((g) => options.genres.has(g));
+
+  const libraryTmdbIds = new Set(movies.filter((m) => m.tmdbId).map((m) => m.tmdbId));
+
+  const ratedPool = options.useRated
+    ? getWatched().filter((m) => m.rating && m.tmdbId && typeMatches(m) && genreMatches(m)).sort((a, b) => b.rating - a.rating)
+    : [];
+
+  let pendingPool = [];
+  if (options.usePending) {
+    const genreWeight = {};
+    getWatched().filter((m) => m.rating).forEach((m) => {
+      (m.genres || []).forEach((g) => { genreWeight[g] = (genreWeight[g] || 0) + m.rating; });
+    });
+    pendingPool = getPending()
+      .filter((m) => m.tmdbId && typeMatches(m) && genreMatches(m))
+      .map((m) => ({ m, score: (m.genres || []).reduce((s, g) => s + (genreWeight[g] || 0), 0) }))
+      .sort((a, b) => b.score - a.score)
+      .map((x) => x.m);
+  }
+
+  let discoveryPool = [];
+  if (options.useDiscovery) {
+    discoveryPool = [
+      ...(wantMovie ? recommendationsMoviePool || [] : []),
+      ...(wantTv ? recommendationsTvPool || [] : []),
+    ].filter((r) => !libraryTmdbIds.has(r.tmdbId));
+  }
+
+  const hasMajoritySource = options.useRated || options.usePending;
+  const discoveryQuota = options.useDiscovery && discoveryPool.length
+    ? (hasMajoritySource ? Math.max(1, Math.round(options.count * 0.2)) : options.count)
+    : 0;
+  const majorityQuota = options.count - discoveryQuota;
+  let ratedQuota = 0;
+  let pendingQuota = 0;
+  if (options.useRated && options.usePending) {
+    ratedQuota = Math.ceil(majorityQuota / 2);
+    pendingQuota = majorityQuota - ratedQuota;
+  } else if (options.useRated) {
+    ratedQuota = majorityQuota;
+  } else if (options.usePending) {
+    pendingQuota = majorityQuota;
+  }
+
+  const usedIds = new Set();
+  const picks = [];
+  function take(pool, pager, quota, source) {
+    if (!pool.length || quota <= 0) return;
+    const page = nextPoolPage(pool, pager, Math.min(quota, pool.length));
+    page.forEach((m) => {
+      if (m.tmdbId && usedIds.has(m.tmdbId)) return;
+      if (m.tmdbId) usedIds.add(m.tmdbId);
+      picks.push(toShareItem(m, source));
+    });
+  }
+  take(ratedPool, sharePagers.rated, ratedQuota, 'rated');
+  take(pendingPool, sharePagers.pending, pendingQuota, 'pending');
+  take(discoveryPool, sharePagers.discovery, discoveryQuota, 'discovery');
+
+  let shortfall = options.count - picks.length;
+  if (shortfall > 0) {
+    const extras = [
+      [ratedPool, sharePagers.rated, 'rated'],
+      [pendingPool, sharePagers.pending, 'pending'],
+      [discoveryPool, sharePagers.discovery, 'discovery'],
+    ];
+    for (const [pool, pager, source] of extras) {
+      if (shortfall <= 0) break;
+      if (!pool.length) continue;
+      const extra = nextPoolPage(pool, pager, Math.min(shortfall, pool.length)).filter((m) => !usedIds.has(m.tmdbId));
+      extra.forEach((m) => {
+        if (shortfall <= 0) return;
+        usedIds.add(m.tmdbId);
+        picks.push(toShareItem(m, source));
+        shortfall--;
+      });
+    }
+  }
+
+  return shuffle(picks).slice(0, options.count);
+}
+
+function openShareConfigModal() {
+  shareTypeSelection = new Set(['pelicula', 'serie']);
+  shareGenreSelection = new Set();
+  sharePagers.rated = makePager();
+  sharePagers.pending = makePager();
+  sharePagers.discovery = makePager();
+  sharePreviewSignature = null;
+  shareConfigPreview = null;
+
+  $('#share-title').value = '';
+  $$('#share-type-chips .chip').forEach((c) => c.classList.add('selected'));
+  renderShareGenreChips();
+  $('#share-count').value = '9';
+  $('#share-src-rated').checked = true;
+  $('#share-src-pending').checked = true;
+  $('#share-src-discovery').checked = true;
+  $('#share-preview-section').classList.add('hidden');
+  $('#share-preview-empty').classList.add('hidden');
+  $('#share-download-btn').disabled = true;
+
+  showOverlay($('#share-config-overlay'));
+}
+
+function closeShareConfigModal() {
+  hideOverlay($('#share-config-overlay'));
+}
+
+function renderShareGenreChips() {
+  const wrap = $('#share-genre-chips');
+  const libraryGenres = [...new Set(movies.flatMap((m) => m.genres || []))];
+  const allGenres = [...new Set([...GENRES_LIST, ...libraryGenres])];
+  wrap.innerHTML = allGenres.map((g) => `<span class="chip" data-genre="${escapeHtml(g)}">${escapeHtml(g)}</span>`).join('');
+  wrap.querySelectorAll('.chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const g = chip.dataset.genre;
+      if (shareGenreSelection.has(g)) {
+        shareGenreSelection.delete(g);
+        chip.classList.remove('selected');
+      } else {
+        shareGenreSelection.add(g);
+        chip.classList.add('selected');
+      }
+    });
+  });
+}
+
+async function generateSharePreview() {
+  const options = {
+    types: new Set(shareTypeSelection),
+    genres: new Set(shareGenreSelection),
+    count: Number($('#share-count').value) || 9,
+    useRated: $('#share-src-rated').checked,
+    usePending: $('#share-src-pending').checked,
+    useDiscovery: $('#share-src-discovery').checked,
+  };
+
+  const signature = JSON.stringify({
+    types: [...options.types].sort(),
+    genres: [...options.genres].sort(),
+    count: options.count,
+    useRated: options.useRated,
+    usePending: options.usePending,
+    useDiscovery: options.useDiscovery,
+  });
+  if (signature !== sharePreviewSignature) {
+    sharePagers.rated = makePager();
+    sharePagers.pending = makePager();
+    sharePagers.discovery = makePager();
+    sharePreviewSignature = signature;
+  }
+
+  const emptyEl = $('#share-preview-empty');
+  const sectionEl = $('#share-preview-section');
+  const downloadBtn = $('#share-download-btn');
+
+  if (!options.useRated && !options.usePending && !options.useDiscovery) {
+    sectionEl.classList.add('hidden');
+    emptyEl.textContent = 'Selecciona al menos una fuente de recomendaciones.';
+    emptyEl.classList.remove('hidden');
+    downloadBtn.disabled = true;
+    return;
+  }
+
+  if (options.useDiscovery && !recommendationsMoviePool && !recommendationsTvPool) {
+    await loadRecommendations();
+  }
+
+  const items = buildShareList(options);
+  shareConfigPreview = { title: $('#share-title').value.trim() || 'Mis recomendaciones', options, items };
+
+  if (!items.length) {
+    sectionEl.classList.add('hidden');
+    emptyEl.textContent = 'No hay suficientes títulos que cumplan estos filtros todavía.';
+    emptyEl.classList.remove('hidden');
+    downloadBtn.disabled = true;
+    return;
+  }
+
+  emptyEl.classList.add('hidden');
+  sectionEl.classList.remove('hidden');
+  downloadBtn.disabled = false;
+  renderSharePreview(items);
+}
+
+function renderSharePreview(items) {
+  const grid = $('#share-preview-grid');
+  const sourceLabels = { rated: 'Tu valoración', pending: 'Pendiente', discovery: 'Descubre' };
+  grid.innerHTML = items.map((it) => `
+    <div class="share-preview-item">
+      ${it.poster ? `<img class="poster" src="${it.poster}" alt="${escapeHtml(it.title)}">` : `<div class="poster">${escapeHtml(it.title)}</div>`}
+      <div class="share-preview-title">${escapeHtml(it.title)}</div>
+      <div class="share-preview-source">${sourceLabels[it.source] || ''}</div>
+    </div>
+  `).join('');
+}
+
+function loadImageSafe(url) {
+  return new Promise((resolve) => {
+    if (!url) { resolve(null); return; }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCenteredLines(ctx, text, maxWidth, maxLines) {
+  const words = String(text || '').split(' ');
+  const lines = [];
+  let current = '';
+  for (let i = 0; i < words.length; i++) {
+    const test = current ? `${current} ${words[i]}` : words[i];
+    if (ctx.measureText(test).width <= maxWidth) {
+      current = test;
+    } else {
+      if (current) lines.push(current);
+      current = words[i];
+      if (lines.length === maxLines) break;
+    }
+  }
+  const fullyConsumed = lines.length < maxLines;
+  if (fullyConsumed && current) lines.push(current);
+  const truncated = !fullyConsumed || lines.length > maxLines;
+  if (lines.length > maxLines) lines.length = maxLines;
+  if (truncated && lines.length) {
+    let last = lines[lines.length - 1];
+    while (last.length > 1 && ctx.measureText(`${last}…`).width > maxWidth) last = last.slice(0, -1);
+    lines[lines.length - 1] = `${last}…`;
+  }
+  return lines;
+}
+
+async function generateShareImage(title, items, profileName) {
+  const cols = items.length > 9 ? 4 : 3;
+  const rows = Math.ceil(items.length / cols);
+  const posterW = 220;
+  const posterH = 330;
+  const gap = 26;
+  const pad = 44;
+  const headerH = 118;
+  const captionH = 70;
+  const footerH = 54;
+  const width = pad * 2 + cols * posterW + (cols - 1) * gap;
+  const height = headerH + rows * (posterH + captionH) + (rows - 1) * gap + footerH;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+
+  const styles = getComputedStyle(document.documentElement);
+  const cv = (name, fallback) => styles.getPropertyValue(name).trim() || fallback;
+  const bg = cv('--bg', '#14161c');
+  const bgElev = cv('--bg-elev', '#1b1e27');
+  const bgElev2 = cv('--bg-elev-2', '#262a37');
+  const accent = cv('--accent', '#e0553f');
+  const textPrimary = cv('--text-primary', '#eceef2');
+  const textMuted = cv('--text-muted', '#6d7386');
+
+  const grad = ctx.createLinearGradient(0, 0, width, height);
+  grad.addColorStop(0, bg);
+  grad.addColorStop(1, bgElev);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = accent;
+  ctx.font = '700 13px "Segoe UI", sans-serif';
+  ctx.fillText('RECOMENDACIONES', pad, 38);
+
+  ctx.fillStyle = textPrimary;
+  ctx.font = '700 32px "Segoe UI", sans-serif';
+  ctx.fillText(title, pad, 76);
+
+  ctx.fillStyle = textMuted;
+  ctx.font = '400 14px "Segoe UI", sans-serif';
+  const subtitle = profileName
+    ? `De ${profileName} · ${items.length} título${items.length === 1 ? '' : 's'}`
+    : `${items.length} título${items.length === 1 ? '' : 's'}`;
+  ctx.fillText(subtitle, pad, 100);
+
+  const images = await Promise.all(items.map((it) => loadImageSafe(it.poster)));
+
+  items.forEach((it, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = pad + col * (posterW + gap);
+    const y = headerH + row * (posterH + captionH + gap);
+    const img = images[i];
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(x, y, posterW, posterH, 14);
+    ctx.clip();
+    if (img) {
+      ctx.drawImage(img, x, y, posterW, posterH);
+    } else {
+      ctx.fillStyle = bgElev2;
+      ctx.fillRect(x, y, posterW, posterH);
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(x + 0.5, y + 0.5, posterW - 1, posterH - 1, 14);
+    ctx.stroke();
+    ctx.restore();
+
+    const cx = x + posterW / 2;
+    const captionTop = y + posterH + 22;
+    ctx.textAlign = 'center';
+    ctx.fillStyle = textPrimary;
+    ctx.font = '600 15px "Segoe UI", sans-serif';
+    const titleLines = wrapCenteredLines(ctx, it.title, posterW - 8, 2);
+    titleLines.forEach((line, li) => ctx.fillText(line, cx, captionTop + li * 19));
+
+    ctx.fillStyle = textMuted;
+    ctx.font = '400 12px "Segoe UI", sans-serif';
+    const metaParts = [];
+    if (it.year) metaParts.push(it.year);
+    metaParts.push(it.type === 'serie' ? 'Serie' : 'Película');
+    ctx.fillText(metaParts.join(' · '), cx, captionTop + 2 * 19);
+  });
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = textMuted;
+  ctx.font = '400 12px "Segoe UI", sans-serif';
+  ctx.fillText('Generado con Películas y Series', width - pad, height - 18);
+  ctx.textAlign = 'left';
+
+  return canvas.toDataURL('image/png');
+}
+
+async function downloadShareImage() {
+  if (!shareConfigPreview || !shareConfigPreview.items.length) return;
+  const btn = $('#share-download-btn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Generando...';
+  try {
+    const profile = allProfiles.find((p) => p.id === activeProfileId);
+    const dataUrl = await generateShareImage(shareConfigPreview.title, shareConfigPreview.items, profile ? profile.name : '');
+    const saved = await window.api.saveShareList({
+      title: shareConfigPreview.title,
+      options: {
+        types: [...shareConfigPreview.options.types],
+        genres: [...shareConfigPreview.options.genres],
+        count: shareConfigPreview.options.count,
+        useRated: shareConfigPreview.options.useRated,
+        usePending: shareConfigPreview.options.usePending,
+        useDiscovery: shareConfigPreview.options.useDiscovery,
+      },
+      items: shareConfigPreview.items,
+      imageDataUrl: dataUrl,
+    });
+    shareLists.unshift(saved);
+    renderShareListsGrid();
+    closeShareConfigModal();
+    showToast('Lista de recomendaciones generada');
+  } catch (err) {
+    showToast('No se pudo generar la imagen', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+function formatShareListDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function renderShareListsGrid() {
+  const grid = $('#share-lists-grid');
+  const empty = $('#share-lists-empty');
+  if (!grid || !empty) return;
+  if (!shareLists.length) {
+    grid.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  grid.innerHTML = shareLists.map((l, i) => `
+    <div class="share-list-card" data-id="${l.id}" style="animation-delay:${Math.min(i, 12) * 40}ms">
+      <img class="share-list-thumb" src="${l.imageUrl}" alt="${escapeHtml(l.title)}">
+      <div class="share-list-body">
+        <div class="share-list-title">${escapeHtml(l.title)}</div>
+        <div class="share-list-meta">${formatShareListDate(l.createdAt)} · ${l.items.length} título${l.items.length === 1 ? '' : 's'}</div>
+        <div class="share-list-actions">
+          <button type="button" class="btn share-open-btn" data-id="${l.id}">Abrir imagen</button>
+          <button type="button" class="btn danger share-delete-btn" data-id="${l.id}">Eliminar</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+  grid.querySelectorAll('.share-open-btn').forEach((btn) => {
+    btn.addEventListener('click', () => window.api.openShareListImage(btn.dataset.id));
+  });
+  grid.querySelectorAll('.share-delete-btn').forEach((btn) => {
+    btn.addEventListener('click', () => deleteShareListEntry(btn.dataset.id));
+  });
+}
+
+async function deleteShareListEntry(id) {
+  if (!confirm('¿Eliminar esta lista de recomendaciones? Se borrará también la imagen generada.')) return;
+  const res = await window.api.deleteShareList(id);
+  if (res && res.error) return;
+  shareLists = shareLists.filter((l) => l.id !== id);
+  renderShareListsGrid();
+  showToast('Lista eliminada', 'error');
 }
 
 function animateStatNumbers() {
@@ -1259,7 +2086,7 @@ async function emptyTrash() {
 /* ---------- Upcoming releases ---------- */
 
 async function loadUpcomingReleases(force = false) {
-  const lastFetch = Number(localStorage.getItem('upcoming-last-fetch')) || 0;
+  const lastFetch = Number(localStorage.getItem(pk('upcoming-last-fetch'))) || 0;
   const oneDayMs = 24 * 60 * 60 * 1000;
   if (!force && upcomingCache && (Date.now() - lastFetch) < oneDayMs) {
     renderUpcomingSection();
@@ -1286,7 +2113,7 @@ async function loadUpcomingReleases(force = false) {
   }
   results.sort((a, b) => a.airDate.localeCompare(b.airDate));
   upcomingCache = results.slice(0, 10);
-  localStorage.setItem('upcoming-last-fetch', String(Date.now()));
+  localStorage.setItem(pk('upcoming-last-fetch'), String(Date.now()));
   renderUpcomingSection();
 }
 
@@ -1598,20 +2425,20 @@ function bindEvents() {
   });
 
   $('#pref-start-view').addEventListener('change', (e) => {
-    localStorage.setItem('pref-start-view', e.target.value);
+    localStorage.setItem(pk('pref-start-view'), e.target.value);
   });
   $('#pref-sort-pendientes').addEventListener('change', (e) => {
-    localStorage.setItem('pref-sort-pendientes', e.target.value);
+    localStorage.setItem(pk('pref-sort-pendientes'), e.target.value);
     $('#sort-pendientes').value = e.target.value;
     resetPendientesPageAndRender();
   });
   $('#pref-sort-vistas').addEventListener('change', (e) => {
-    localStorage.setItem('pref-sort-vistas', e.target.value);
+    localStorage.setItem(pk('pref-sort-vistas'), e.target.value);
     $('#sort-vistas').value = e.target.value;
     resetVistasPageAndRender();
   });
   $('#pref-page-size').addEventListener('change', (e) => {
-    localStorage.setItem('pref-page-size', e.target.value);
+    localStorage.setItem(pk('pref-page-size'), e.target.value);
     PAGE_SIZE = Number(e.target.value) || 48;
     pendientesPageSize = PAGE_SIZE;
     vistasPageSize = PAGE_SIZE;
@@ -1619,14 +2446,14 @@ function bindEvents() {
     renderVistas();
   });
   $('#pref-delete-mode').addEventListener('change', (e) => {
-    localStorage.setItem('pref-delete-mode', e.target.value);
+    localStorage.setItem(pk('pref-delete-mode'), e.target.value);
   });
   $('#pref-recs-toggle').addEventListener('change', (e) => {
-    localStorage.setItem('pref-recs-enabled', String(e.target.checked));
+    localStorage.setItem(pk('pref-recs-enabled'), String(e.target.checked));
     if (e.target.checked && !recommendationsCache) loadRecommendations();
   });
   $('#pref-anniv-toggle').addEventListener('change', (e) => {
-    localStorage.setItem('pref-anniv-enabled', String(e.target.checked));
+    localStorage.setItem(pk('pref-anniv-enabled'), String(e.target.checked));
     renderDashboard();
   });
   $$('.panel-toggle').forEach((toggle) => {
@@ -1736,7 +2563,7 @@ function bindEvents() {
     if (!editingId) return;
     const deleted = movies.find((m) => m.id === editingId);
     if (!deleted) return;
-    const deleteMode = localStorage.getItem('pref-delete-mode') || 'undo';
+    const deleteMode = localStorage.getItem(pk('pref-delete-mode')) || 'undo';
 
     if (deleteMode === 'confirm' && !confirm(`¿Eliminar "${deleted.title}" de tu lista?`)) return;
 
@@ -1870,7 +2697,15 @@ function bindEvents() {
       else if (!$('#modal-overlay').classList.contains('hidden')) closeModal();
       else if (!$('#bulk-overlay').classList.contains('hidden')) closeBulkModal();
       else if (!$('#wrapped-overlay').classList.contains('hidden')) closeWrappedModal();
+      else if (!$('#share-config-overlay').classList.contains('hidden')) closeShareConfigModal();
+      else if (!$('#profile-overlay').classList.contains('hidden') && !$('#profile-close-btn').classList.contains('hidden')) {
+        $('#profile-close-btn').click();
+      }
     }
+  });
+
+  $('#profile-switcher-btn').addEventListener('click', () => {
+    showProfilePicker({ forced: false });
   });
 
   $('#btn-wrapped').addEventListener('click', openWrappedModal);
@@ -1905,7 +2740,7 @@ function bindEvents() {
   $('#btn-refresh-recs').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     btn.classList.add('spin-once');
-    await loadRecommendations(true);
+    await loadRecommendations();
     setTimeout(() => btn.classList.remove('spin-once'), 500);
   });
 
@@ -1928,6 +2763,29 @@ function bindEvents() {
   $('#btn-bulk-delete-vistas').addEventListener('click', () => applyBulkDelete('vistas'));
 
   $('#btn-empty-trash').addEventListener('click', emptyTrash);
+
+  $('#btn-new-share-list').addEventListener('click', openShareConfigModal);
+  $('#share-config-close').addEventListener('click', closeShareConfigModal);
+  $('#share-config-cancel').addEventListener('click', closeShareConfigModal);
+  $('#share-config-overlay').addEventListener('click', (e) => {
+    if (e.target.id === 'share-config-overlay') closeShareConfigModal();
+  });
+  $('#share-type-chips').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    const type = chip.dataset.type;
+    if (shareTypeSelection.has(type)) {
+      if (shareTypeSelection.size === 1) return;
+      shareTypeSelection.delete(type);
+      chip.classList.remove('selected');
+    } else {
+      shareTypeSelection.add(type);
+      chip.classList.add('selected');
+    }
+  });
+  $('#share-generate-preview').addEventListener('click', generateSharePreview);
+  $('#share-shuffle-preview').addEventListener('click', generateSharePreview);
+  $('#share-download-btn').addEventListener('click', downloadShareImage);
 }
 
 async function runSearch(query) {

@@ -42,6 +42,10 @@
       <svg class="icon"><use href="#icon-film"></use></svg>
       <span>Películas y Series</span>
     </div>
+    <button id="profile-switcher-btn" class="profile-switcher" title="Cambiar de perfil">
+      <span id="profile-avatar" class="profile-avatar"></span>
+      <span id="profile-name">Perfil</span>
+    </button>
     <button id="btn-global-search" class="global-search-trigger">
       <svg class="icon"><use href="#icon-search"></use></svg>
       <span>Buscar...</span>
@@ -53,6 +57,7 @@
       <button class="nav-item" data-view="pendientes"><svg class="icon"><use href="#icon-clock"></use></svg>Pendientes</button>
       <button class="nav-item" data-view="vistas"><svg class="icon"><use href="#icon-check"></use></svg>Vistas</button>
       <button class="nav-item" data-view="papelera"><svg class="icon"><use href="#icon-trash"></use></svg>Papelera<span class="nav-badge hidden" id="trash-badge">0</span></button>
+      <button class="nav-item" data-view="recomendar"><svg class="icon"><use href="#icon-gift"></use></svg>Recomendar</button>
       <button class="nav-item" data-view="ajustes"><svg class="icon"><use href="#icon-sliders"></use></svg>Ajustes</button>
     </nav>
     <button id="btn-add" class="btn primary sidebar-add">
@@ -258,6 +263,18 @@
       </header>
       <div id="list-papelera" class="movie-grid"></div>
       <p id="empty-papelera" class="empty">La papelera está vacía.</p>
+    </section>
+
+    <section id="view-recomendar" class="view">
+      <header class="view-header">
+        <div>
+          <h1>Recomendar</h1>
+          <p class="subtitle">Crea listas de recomendaciones para compartir, en base a lo que has visto, valorado y tienes pendiente.</p>
+        </div>
+        <button id="btn-new-share-list" class="btn primary"><svg class="icon"><use href="#icon-plus"></use></svg>Nueva lista</button>
+      </header>
+      <div id="share-lists-grid" class="share-lists-grid"></div>
+      <p id="share-lists-empty" class="empty">Todavía no has creado ninguna lista de recomendaciones.</p>
     </section>
 
     <section id="view-ajustes" class="view">
@@ -660,6 +677,107 @@
         <select id="wrapped-year"></select>
       </div>
       <div id="wrapped-content" class="wrapped-content"></div>
+    </div>
+  </div>
+
+  <div id="profile-overlay" class="overlay hidden">
+    <div class="modal profile-modal">
+      <button class="icon-btn close-btn hidden" id="profile-close-btn"><svg class="icon"><use href="#icon-x"></use></svg></button>
+      <h2>¿Quién ve ahora?</h2>
+      <div id="profile-grid" class="profile-grid"></div>
+      <div class="profile-modal-actions">
+        <button type="button" id="profile-manage-btn" class="btn hidden">Gestionar perfiles</button>
+      </div>
+
+      <form id="profile-form" class="profile-form hidden">
+        <h3 id="profile-form-title">Nuevo perfil</h3>
+        <label>Nombre</label>
+        <input id="profile-form-name" maxlength="30" placeholder="Nombre del perfil" autocomplete="off">
+        <label>Color</label>
+        <div id="profile-form-colors" class="profile-color-list"></div>
+        <div class="form-actions">
+          <button type="button" id="profile-form-cancel" class="btn">Cancelar</button>
+          <button type="submit" class="btn primary">Guardar</button>
+        </div>
+      </form>
+
+      <div id="profile-delete-confirm" class="profile-form hidden">
+        <h3>Eliminar perfil</h3>
+        <p class="profile-delete-warning">Vas a eliminar el perfil "<strong id="profile-delete-name-label"></strong>". No se borrará para siempre: podrás restaurarlo durante 30 días desde "Perfiles eliminados", justo aquí abajo.</p>
+        <label>Escribe el nombre del perfil para confirmar</label>
+        <input id="profile-delete-confirm-input" autocomplete="off" placeholder="Nombre del perfil">
+        <div class="form-actions">
+          <button type="button" id="profile-delete-cancel" class="btn">Cancelar</button>
+          <button type="button" id="profile-delete-confirm-btn" class="btn danger" disabled>Eliminar perfil</button>
+        </div>
+      </div>
+
+      <div id="profile-deleted-section" class="profile-deleted-section hidden">
+        <h3>Perfiles eliminados</h3>
+        <div id="profile-deleted-list" class="profile-deleted-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="share-config-overlay" class="overlay hidden">
+    <div class="modal share-config-modal">
+      <button class="icon-btn close-btn" id="share-config-close"><svg class="icon"><use href="#icon-x"></use></svg></button>
+      <h2>Nueva lista de recomendaciones</h2>
+
+      <div class="share-config-body">
+        <div class="share-field">
+          <label>Título de la lista</label>
+          <input id="share-title" maxlength="60" placeholder="Ej. Mis recomendaciones de terror" autocomplete="off">
+        </div>
+
+        <div class="share-field">
+          <label>Incluir</label>
+          <div class="chip-row" id="share-type-chips">
+            <span class="chip selected" data-type="pelicula">Películas</span>
+            <span class="chip selected" data-type="serie">Series</span>
+          </div>
+        </div>
+
+        <div class="share-field">
+          <label>Géneros <span class="field-hint">(opcional; si no eliges ninguno, se incluyen todos)</span></label>
+          <div class="chip-row" id="share-genre-chips"></div>
+        </div>
+
+        <div class="share-field">
+          <label>Cantidad de títulos</label>
+          <select id="share-count">
+            <option value="6">6</option>
+            <option value="9" selected>9</option>
+            <option value="12">12</option>
+            <option value="16">16</option>
+          </select>
+        </div>
+
+        <div class="share-field">
+          <label>Basar recomendaciones en</label>
+          <label class="switch-row"><span>Mis mejor valoradas</span><span class="switch"><input type="checkbox" id="share-src-rated" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+          <label class="switch-row"><span>Buenas pendientes (según tus gustos)</span><span class="switch"><input type="checkbox" id="share-src-pending" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+          <label class="switch-row"><span>Un poco de descubrimiento (minoría)</span><span class="switch"><input type="checkbox" id="share-src-discovery" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+        </div>
+
+        <div class="share-field">
+          <button type="button" id="share-generate-preview" class="btn">Generar vista previa</button>
+        </div>
+
+        <div id="share-preview-section" class="hidden">
+          <div class="share-preview-header">
+            <label>Vista previa</label>
+            <button type="button" id="share-shuffle-preview" class="icon-btn" title="Cambiar selección"><svg class="icon"><use href="#icon-repeat"></use></svg></button>
+          </div>
+          <div id="share-preview-grid" class="share-preview-grid"></div>
+        </div>
+        <p id="share-preview-empty" class="chart-empty hidden"></p>
+      </div>
+
+      <div class="form-actions">
+        <button type="button" id="share-config-cancel" class="btn">Cancelar</button>
+        <button type="button" id="share-download-btn" class="btn primary" disabled>Generar imagen</button>
+      </div>
     </div>
   </div>
 

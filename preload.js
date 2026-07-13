@@ -1,6 +1,14 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
+  listProfiles: () => ipcRenderer.invoke('profiles:list'),
+  createProfile: (name, color) => ipcRenderer.invoke('profiles:create', name, color),
+  renameProfile: (id, name) => ipcRenderer.invoke('profiles:rename', id, name),
+  deleteProfile: (id) => ipcRenderer.invoke('profiles:delete', id),
+  listDeletedProfiles: () => ipcRenderer.invoke('profiles:listDeleted'),
+  restoreProfile: (id) => ipcRenderer.invoke('profiles:restore', id),
+  purgeDeletedProfile: (id) => ipcRenderer.invoke('profiles:purgeDeleted', id),
+  setActiveProfile: (id) => ipcRenderer.invoke('profiles:setActive', id),
   loadMovies: () => ipcRenderer.invoke('movies:load'),
   saveMovies: (movies) => ipcRenderer.invoke('movies:save', movies),
   loadTrash: () => ipcRenderer.invoke('trash:load'),
@@ -12,6 +20,11 @@ contextBridge.exposeInMainWorld('api', {
   getTmdbProviders: (tmdbId, mediaType) => ipcRenderer.invoke('tmdb:providers', tmdbId, mediaType),
   openTrailer: (tmdbId, mediaType) => ipcRenderer.invoke('tmdb:openTrailer', tmdbId, mediaType),
   getRecommendations: (tmdbId, mediaType) => ipcRenderer.invoke('tmdb:recommendations', tmdbId, mediaType),
+  getTrending: () => ipcRenderer.invoke('tmdb:trending'),
+  listShareLists: () => ipcRenderer.invoke('shareLists:list'),
+  saveShareList: (payload) => ipcRenderer.invoke('shareLists:save', payload),
+  deleteShareList: (id) => ipcRenderer.invoke('shareLists:delete', id),
+  openShareListImage: (id) => ipcRenderer.invoke('shareLists:openImage', id),
   exportData: () => ipcRenderer.invoke('data:export'),
   importData: () => ipcRenderer.invoke('data:import'),
   pickCsvFile: () => ipcRenderer.invoke('data:pickCsv'),
