@@ -46,9 +46,13 @@ Construida con [Electron](https://www.electronjs.org/) y JavaScript "vanilla" (s
 **Recomendar a otras personas**
 - Apartado **Recomendar**: crea listas de recomendaciones pensadas para compartir con otra gente,
   con un menú de opciones para elegir qué incluir (películas, series o ambas; géneros concretos;
-  cuántos títulos). Se nutren sobre todo de tus mejor valoradas y tus pendientes con más
-  posibilidades (según tus géneros favoritos), añadiendo solo una pequeña minoría de
-  descubrimiento para dar variedad.
+  la plataforma en la que esa persona ve contenido —Netflix, Prime Video...—; cuántos títulos).
+  Se nutren sobre todo de tus mejor valoradas y tus pendientes con más posibilidades (según tus
+  géneros favoritos), añadiendo solo una pequeña minoría de descubrimiento para dar variedad.
+- Además de la lista automática, puedes **editarla a mano**: quitar cualquier título con un clic o
+  buscar y añadir cualquier película o serie de TMDB, esté o no en tu biblioteca. También existe un
+  **modo Manual** para saltarte el algoritmo por completo y montar la lista tú solo, título a
+  título.
 - Cada lista se genera como una **imagen** (pósters en cuadrícula, título y tu nombre de perfil)
   lista para compartir, y queda guardada con fecha en un historial dentro del propio apartado,
   desde donde puedes volver a abrirla o borrarla.

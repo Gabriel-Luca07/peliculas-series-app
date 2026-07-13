@@ -1032,6 +1032,9 @@ function renderRecommendationsSection() {
 
 let shareTypeSelection = new Set(['pelicula', 'serie']);
 let shareGenreSelection = new Set();
+let sharePlatformSelection = new Set();
+let shareMode = 'auto';
+let shareSearchTimer = null;
 const sharePagers = { rated: makePager(), pending: makePager(), discovery: makePager() };
 let sharePreviewSignature = null;
 
@@ -1047,11 +1050,12 @@ function buildShareList(options) {
   const wantTv = options.types.has('serie');
   const typeMatches = (m) => (m.type === 'pelicula' && wantMovie) || (m.type === 'serie' && wantTv);
   const genreMatches = (m) => !options.genres.size || (m.genres || []).some((g) => options.genres.has(g));
+  const platformMatches = (m) => !options.platforms.size || options.platforms.has(m.platform);
 
   const libraryTmdbIds = new Set(movies.filter((m) => m.tmdbId).map((m) => m.tmdbId));
 
   const ratedPool = options.useRated
-    ? getWatched().filter((m) => m.rating && m.tmdbId && typeMatches(m) && genreMatches(m)).sort((a, b) => b.rating - a.rating)
+    ? getWatched().filter((m) => m.rating && m.tmdbId && typeMatches(m) && genreMatches(m) && platformMatches(m)).sort((a, b) => b.rating - a.rating)
     : [];
 
   let pendingPool = [];
@@ -1061,7 +1065,7 @@ function buildShareList(options) {
       (m.genres || []).forEach((g) => { genreWeight[g] = (genreWeight[g] || 0) + m.rating; });
     });
     pendingPool = getPending()
-      .filter((m) => m.tmdbId && typeMatches(m) && genreMatches(m))
+      .filter((m) => m.tmdbId && typeMatches(m) && genreMatches(m) && platformMatches(m))
       .map((m) => ({ m, score: (m.genres || []).reduce((s, g) => s + (genreWeight[g] || 0), 0) }))
       .sort((a, b) => b.score - a.score)
       .map((x) => x.m);
@@ -1132,28 +1136,39 @@ function buildShareList(options) {
 function openShareConfigModal() {
   shareTypeSelection = new Set(['pelicula', 'serie']);
   shareGenreSelection = new Set();
+  sharePlatformSelection = new Set();
   sharePagers.rated = makePager();
   sharePagers.pending = makePager();
   sharePagers.discovery = makePager();
   sharePreviewSignature = null;
-  shareConfigPreview = null;
+  shareConfigPreview = { title: '', items: [] };
 
   $('#share-title').value = '';
   $$('#share-type-chips .chip').forEach((c) => c.classList.add('selected'));
   renderShareGenreChips();
+  renderSharePlatformChips();
   $('#share-count').value = '9';
   $('#share-src-rated').checked = true;
   $('#share-src-pending').checked = true;
   $('#share-src-discovery').checked = true;
-  $('#share-preview-section').classList.add('hidden');
-  $('#share-preview-empty').classList.add('hidden');
-  $('#share-download-btn').disabled = true;
+  $('#share-manual-search-input').value = '';
+  $('#share-manual-search-results').innerHTML = '';
+  $('#share-manual-search-hint').textContent = '';
+  setShareMode('auto');
+  renderSharePreview();
 
   showOverlay($('#share-config-overlay'));
 }
 
 function closeShareConfigModal() {
   hideOverlay($('#share-config-overlay'));
+}
+
+function setShareMode(mode) {
+  shareMode = mode;
+  $$('#share-mode-chips .chip').forEach((c) => c.classList.toggle('selected', c.dataset.mode === mode));
+  $('#share-auto-fields').classList.toggle('hidden', mode === 'manual');
+  $('#share-shuffle-preview').classList.toggle('hidden', mode === 'manual');
 }
 
 function renderShareGenreChips() {
@@ -1175,10 +1190,28 @@ function renderShareGenreChips() {
   });
 }
 
+function renderSharePlatformChips() {
+  const wrap = $('#share-platform-chips');
+  wrap.innerHTML = PLATFORMS.map((p) => `<span class="chip" data-platform="${escapeHtml(p)}">${escapeHtml(p)}</span>`).join('');
+  wrap.querySelectorAll('.chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const p = chip.dataset.platform;
+      if (sharePlatformSelection.has(p)) {
+        sharePlatformSelection.delete(p);
+        chip.classList.remove('selected');
+      } else {
+        sharePlatformSelection.add(p);
+        chip.classList.add('selected');
+      }
+    });
+  });
+}
+
 async function generateSharePreview() {
   const options = {
     types: new Set(shareTypeSelection),
     genres: new Set(shareGenreSelection),
+    platforms: new Set(sharePlatformSelection),
     count: Number($('#share-count').value) || 9,
     useRated: $('#share-src-rated').checked,
     usePending: $('#share-src-pending').checked,
@@ -1188,6 +1221,7 @@ async function generateSharePreview() {
   const signature = JSON.stringify({
     types: [...options.types].sort(),
     genres: [...options.genres].sort(),
+    platforms: [...options.platforms].sort(),
     count: options.count,
     useRated: options.useRated,
     usePending: options.usePending,
@@ -1217,7 +1251,9 @@ async function generateSharePreview() {
   }
 
   const items = buildShareList(options);
-  shareConfigPreview = { title: $('#share-title').value.trim() || 'Mis recomendaciones', options, items };
+  if (!shareConfigPreview) shareConfigPreview = { title: '', items: [] };
+  shareConfigPreview.items = items;
+  shareConfigPreview.title = $('#share-title').value.trim() || 'Mis recomendaciones';
 
   if (!items.length) {
     sectionEl.classList.add('hidden');
@@ -1227,22 +1263,93 @@ async function generateSharePreview() {
     return;
   }
 
-  emptyEl.classList.add('hidden');
-  sectionEl.classList.remove('hidden');
-  downloadBtn.disabled = false;
-  renderSharePreview(items);
+  renderSharePreview();
 }
 
-function renderSharePreview(items) {
+function renderSharePreview() {
+  const items = shareConfigPreview ? shareConfigPreview.items : [];
   const grid = $('#share-preview-grid');
-  const sourceLabels = { rated: 'Tu valoración', pending: 'Pendiente', discovery: 'Descubre' };
-  grid.innerHTML = items.map((it) => `
-    <div class="share-preview-item">
+  const sectionEl = $('#share-preview-section');
+  const emptyEl = $('#share-preview-empty');
+  const downloadBtn = $('#share-download-btn');
+  const countEl = $('#share-preview-count');
+
+  downloadBtn.disabled = !items.length;
+
+  if (!items.length) {
+    sectionEl.classList.add('hidden');
+    countEl.textContent = '';
+    emptyEl.textContent = 'Todavía no hay títulos en la lista. Genera una vista previa automática o añade alguno a mano.';
+    emptyEl.classList.remove('hidden');
+    return;
+  }
+
+  emptyEl.classList.add('hidden');
+  sectionEl.classList.remove('hidden');
+  countEl.textContent = `(${items.length})`;
+
+  const sourceLabels = { rated: 'Tu valoración', pending: 'Pendiente', discovery: 'Descubre', manual: 'Manual' };
+  grid.innerHTML = items.map((it, i) => `
+    <div class="share-preview-item" data-idx="${i}">
       ${it.poster ? `<img class="poster" src="${it.poster}" alt="${escapeHtml(it.title)}">` : `<div class="poster">${escapeHtml(it.title)}</div>`}
+      <button type="button" class="share-preview-remove" data-idx="${i}" title="Quitar de la lista"><svg class="icon"><use href="#icon-x"></use></svg></button>
       <div class="share-preview-title">${escapeHtml(it.title)}</div>
       <div class="share-preview-source">${sourceLabels[it.source] || ''}</div>
     </div>
   `).join('');
+  grid.querySelectorAll('.share-preview-remove').forEach((btn) => {
+    btn.addEventListener('click', () => removeShareItem(Number(btn.dataset.idx)));
+  });
+}
+
+function removeShareItem(idx) {
+  if (!shareConfigPreview) return;
+  shareConfigPreview.items.splice(idx, 1);
+  renderSharePreview();
+}
+
+async function runShareManualSearch(query) {
+  const res = await window.api.searchTmdb(query);
+  const resultsEl = $('#share-manual-search-results');
+  const hintEl = $('#share-manual-search-hint');
+
+  if (res.error === 'NO_API_KEY') {
+    hintEl.textContent = 'Necesitas configurar tu API key de TMDB en Ajustes.';
+    resultsEl.innerHTML = '';
+    return;
+  }
+  if (res.error) {
+    hintEl.textContent = 'No se pudo buscar ahora mismo (sin conexión o error de TMDB).';
+    resultsEl.innerHTML = '';
+    return;
+  }
+
+  hintEl.textContent = res.results.length ? '' : 'Sin resultados.';
+  resultsEl.innerHTML = res.results.map((r, i) => `
+    <div class="search-result" data-idx="${i}">
+      <img src="${r.poster || ''}" alt="">
+      <div>
+        <div class="sr-title">${escapeHtml(r.title)} <span class="type-tag">${r.mediaType === 'tv' ? 'Serie' : 'Película'}</span></div>
+        <div class="sr-year">${escapeHtml(r.year)}</div>
+      </div>
+    </div>
+  `).join('');
+  resultsEl.querySelectorAll('.search-result').forEach((el) => {
+    el.addEventListener('click', () => addManualShareItem(res.results[Number(el.dataset.idx)]));
+  });
+}
+
+function addManualShareItem(r) {
+  if (!shareConfigPreview) shareConfigPreview = { title: '', items: [] };
+  if (shareConfigPreview.items.some((it) => it.tmdbId === r.tmdbId)) {
+    showToast('Ese título ya está en la lista', 'error');
+    return;
+  }
+  shareConfigPreview.items.push(toShareItem(r, 'manual'));
+  $('#share-manual-search-input').value = '';
+  $('#share-manual-search-results').innerHTML = '';
+  $('#share-manual-search-hint').textContent = '';
+  renderSharePreview();
 }
 
 function loadImageSafe(url) {
@@ -1392,17 +1499,20 @@ async function downloadShareImage() {
   btn.disabled = true;
   btn.textContent = 'Generando...';
   try {
+    const title = $('#share-title').value.trim() || 'Mis recomendaciones';
     const profile = allProfiles.find((p) => p.id === activeProfileId);
-    const dataUrl = await generateShareImage(shareConfigPreview.title, shareConfigPreview.items, profile ? profile.name : '');
+    const dataUrl = await generateShareImage(title, shareConfigPreview.items, profile ? profile.name : '');
     const saved = await window.api.saveShareList({
-      title: shareConfigPreview.title,
+      title,
       options: {
-        types: [...shareConfigPreview.options.types],
-        genres: [...shareConfigPreview.options.genres],
-        count: shareConfigPreview.options.count,
-        useRated: shareConfigPreview.options.useRated,
-        usePending: shareConfigPreview.options.usePending,
-        useDiscovery: shareConfigPreview.options.useDiscovery,
+        mode: shareMode,
+        types: [...shareTypeSelection],
+        genres: [...shareGenreSelection],
+        platforms: [...sharePlatformSelection],
+        count: Number($('#share-count').value) || shareConfigPreview.items.length,
+        useRated: $('#share-src-rated').checked,
+        usePending: $('#share-src-pending').checked,
+        useDiscovery: $('#share-src-discovery').checked,
       },
       items: shareConfigPreview.items,
       imageDataUrl: dataUrl,
@@ -2786,6 +2896,21 @@ function bindEvents() {
   $('#share-generate-preview').addEventListener('click', generateSharePreview);
   $('#share-shuffle-preview').addEventListener('click', generateSharePreview);
   $('#share-download-btn').addEventListener('click', downloadShareImage);
+  $('#share-mode-chips').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    setShareMode(chip.dataset.mode);
+  });
+  $('#share-manual-search-input').addEventListener('input', (e) => {
+    clearTimeout(shareSearchTimer);
+    const query = e.target.value.trim();
+    if (!query) {
+      $('#share-manual-search-results').innerHTML = '';
+      $('#share-manual-search-hint').textContent = '';
+      return;
+    }
+    shareSearchTimer = setTimeout(() => runShareManualSearch(query), 400);
+  });
 }
 
 async function runSearch(query) {

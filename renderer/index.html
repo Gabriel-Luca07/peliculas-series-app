@@ -731,42 +731,68 @@
         </div>
 
         <div class="share-field">
-          <label>Incluir</label>
-          <div class="chip-row" id="share-type-chips">
-            <span class="chip selected" data-type="pelicula">Películas</span>
-            <span class="chip selected" data-type="serie">Series</span>
+          <label>Modo</label>
+          <div class="chip-row" id="share-mode-chips">
+            <span class="chip selected" data-mode="auto">Automática</span>
+            <span class="chip" data-mode="manual">Manual (elijo yo cada título)</span>
+          </div>
+        </div>
+
+        <div id="share-auto-fields">
+          <div class="share-field">
+            <label>Incluir</label>
+            <div class="chip-row" id="share-type-chips">
+              <span class="chip selected" data-type="pelicula">Películas</span>
+              <span class="chip selected" data-type="serie">Series</span>
+            </div>
+          </div>
+
+          <div class="share-field">
+            <label>Géneros <span class="field-hint">(opcional; si no eliges ninguno, se incluyen todos)</span></label>
+            <div class="chip-row" id="share-genre-chips"></div>
+          </div>
+
+          <div class="share-field">
+            <label>Plataforma <span class="field-hint">(opcional; si no eliges ninguna, se incluyen todas)</span></label>
+            <div class="chip-row" id="share-platform-chips"></div>
+          </div>
+
+          <div class="share-field">
+            <label>Cantidad de títulos</label>
+            <select id="share-count">
+              <option value="6">6</option>
+              <option value="9" selected>9</option>
+              <option value="12">12</option>
+              <option value="16">16</option>
+            </select>
+          </div>
+
+          <div class="share-field">
+            <label>Basar recomendaciones en</label>
+            <label class="switch-row"><span>Mis mejor valoradas</span><span class="switch"><input type="checkbox" id="share-src-rated" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+            <label class="switch-row"><span>Buenas pendientes (según tus gustos)</span><span class="switch"><input type="checkbox" id="share-src-pending" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+            <label class="switch-row"><span>Un poco de descubrimiento (minoría)</span><span class="switch"><input type="checkbox" id="share-src-discovery" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
+            <p class="field-hint">El filtro de plataforma solo aplica a tus mejor valoradas y pendientes (el descubrimiento no tiene esa información).</p>
+          </div>
+
+          <div class="share-field">
+            <button type="button" id="share-generate-preview" class="btn">Generar vista previa</button>
           </div>
         </div>
 
         <div class="share-field">
-          <label>Géneros <span class="field-hint">(opcional; si no eliges ninguno, se incluyen todos)</span></label>
-          <div class="chip-row" id="share-genre-chips"></div>
-        </div>
-
-        <div class="share-field">
-          <label>Cantidad de títulos</label>
-          <select id="share-count">
-            <option value="6">6</option>
-            <option value="9" selected>9</option>
-            <option value="12">12</option>
-            <option value="16">16</option>
-          </select>
-        </div>
-
-        <div class="share-field">
-          <label>Basar recomendaciones en</label>
-          <label class="switch-row"><span>Mis mejor valoradas</span><span class="switch"><input type="checkbox" id="share-src-rated" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
-          <label class="switch-row"><span>Buenas pendientes (según tus gustos)</span><span class="switch"><input type="checkbox" id="share-src-pending" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
-          <label class="switch-row"><span>Un poco de descubrimiento (minoría)</span><span class="switch"><input type="checkbox" id="share-src-discovery" checked><span class="switch-track"><span class="switch-thumb"></span></span></span></label>
-        </div>
-
-        <div class="share-field">
-          <button type="button" id="share-generate-preview" class="btn">Generar vista previa</button>
+          <label>Añadir título a mano</label>
+          <div class="search-row">
+            <svg class="icon"><use href="#icon-search"></use></svg>
+            <input type="text" id="share-manual-search-input" placeholder="Busca un título en TMDB..." autocomplete="off">
+          </div>
+          <p id="share-manual-search-hint" class="hint"></p>
+          <div id="share-manual-search-results" class="search-results"></div>
         </div>
 
         <div id="share-preview-section" class="hidden">
           <div class="share-preview-header">
-            <label>Vista previa</label>
+            <label>Vista previa <span id="share-preview-count" class="field-hint"></span></label>
             <button type="button" id="share-shuffle-preview" class="icon-btn" title="Cambiar selección"><svg class="icon"><use href="#icon-repeat"></use></svg></button>
           </div>
           <div id="share-preview-grid" class="share-preview-grid"></div>
