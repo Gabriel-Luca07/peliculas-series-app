@@ -58,6 +58,7 @@
       <button class="nav-item" data-view="vistas"><svg class="icon"><use href="#icon-check"></use></svg>Vistas</button>
       <button class="nav-item" data-view="papelera"><svg class="icon"><use href="#icon-trash"></use></svg>Papelera<span class="nav-badge hidden" id="trash-badge">0</span></button>
       <button class="nav-item" data-view="recomendar"><svg class="icon"><use href="#icon-gift"></use></svg>Recomendar</button>
+      <button class="nav-item" data-view="suscripciones"><svg class="icon"><use href="#icon-ticket"></use></svg>Suscripciones</button>
       <button class="nav-item" data-view="ajustes"><svg class="icon"><use href="#icon-sliders"></use></svg>Ajustes</button>
     </nav>
     <button id="btn-add" class="btn primary sidebar-add">
@@ -277,6 +278,26 @@
       <p id="share-lists-empty" class="empty">Todavía no has creado ninguna lista de recomendaciones.</p>
     </section>
 
+    <section id="view-suscripciones" class="view">
+      <header class="view-header">
+        <div>
+          <h1>Suscripciones</h1>
+          <p class="subtitle">Activa una plataforma a la vez, ponte al día con tus pendientes y cancela — para no pagar varias suscripciones a la vez.</p>
+        </div>
+      </header>
+
+      <div class="chart-card" id="panel-sub-planner">
+        <h2><svg class="icon"><use href="#icon-ticket"></use></svg> ¿Qué plataforma me compensa contratar?</h2>
+        <div class="share-field">
+          <label>Plataforma</label>
+          <select id="sub-planner-platform"></select>
+        </div>
+        <div id="sub-planner-result" class="sub-planner-result"></div>
+      </div>
+
+      <div id="subscriptions-grid" class="subscriptions-grid"></div>
+    </section>
+
     <section id="view-ajustes" class="view">
       <header class="view-header">
         <div>
@@ -298,6 +319,16 @@
             <button type="button" class="swatch" data-accent="violeta" style="--swatch-color:#9085e9" title="Violeta"></button>
             <button type="button" class="swatch" data-accent="rosa" style="--swatch-color:#e0568f" title="Rosa"></button>
             <button type="button" class="swatch" data-accent="ambar" style="--swatch-color:#d9962b" title="Ámbar"></button>
+            <button type="button" class="swatch" data-accent="turquesa" style="--swatch-color:#14b8a6" title="Turquesa"></button>
+            <button type="button" class="swatch" data-accent="lima" style="--swatch-color:#84cc16" title="Lima"></button>
+            <button type="button" class="swatch" data-accent="naranja" style="--swatch-color:#f97316" title="Naranja"></button>
+            <button type="button" class="swatch" data-accent="indigo" style="--swatch-color:#6366f1" title="Índigo"></button>
+            <button type="button" class="swatch" data-accent="esmeralda" style="--swatch-color:#10b981" title="Esmeralda"></button>
+            <button type="button" class="swatch" data-accent="coral" style="--swatch-color:#ff6f59" title="Coral"></button>
+            <button type="button" class="swatch" data-accent="magenta" style="--swatch-color:#d6409f" title="Magenta"></button>
+            <button type="button" class="swatch" data-accent="dorado" style="--swatch-color:#ca8a04" title="Dorado"></button>
+            <button type="button" class="swatch" data-accent="cian" style="--swatch-color:#0ea5e9" title="Cian"></button>
+            <button type="button" class="swatch" data-accent="pizarra" style="--swatch-color:#64748b" title="Pizarra"></button>
           </div>
 
           <label>Color de las gráficas</label>
@@ -691,8 +722,19 @@
 
       <form id="profile-form" class="profile-form hidden">
         <h3 id="profile-form-title">Nuevo perfil</h3>
+
+        <div id="profile-form-avatar-section" class="profile-form-avatar-section hidden">
+          <div id="profile-form-avatar-preview" class="profile-form-avatar-preview"></div>
+          <div class="profile-form-avatar-actions">
+            <button type="button" id="profile-form-avatar-pick" class="btn">Elegir foto</button>
+            <button type="button" id="profile-form-avatar-clear" class="btn hidden">Quitar foto</button>
+          </div>
+        </div>
+
         <label>Nombre</label>
         <input id="profile-form-name" maxlength="30" placeholder="Nombre del perfil" autocomplete="off">
+        <label>Inicial personalizada <span class="field-hint">(opcional, máx. 2 caracteres; se usa si no eliges foto)</span></label>
+        <input id="profile-form-initial" maxlength="2" placeholder="Ej. RG" autocomplete="off">
         <label>Color</label>
         <div id="profile-form-colors" class="profile-color-list"></div>
         <div class="form-actions">

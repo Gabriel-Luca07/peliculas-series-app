@@ -16,6 +16,7 @@ function backupsDir(id) { return path.join(profileDir(id), 'backups'); }
 function deletedProfileDir(id) { return path.join(dataDir, 'deleted-profiles', id); }
 function shareListsFile(id) { return path.join(profileDir(id), 'share-lists.json'); }
 function shareImagesDir(id) { return path.join(profileDir(id), 'share-images'); }
+function subscriptionsFile(id) { return path.join(profileDir(id), 'subscriptions.json'); }
 
 const DELETED_PROFILE_RETENTION_DAYS = 30;
 
@@ -26,6 +27,16 @@ const DEFAULT_PROFILE_SETTINGS = {
   language: 'es-ES', region: 'ES',
   autoBackupEnabled: true, autoBackupRetentionDays: 14,
 };
+
+const ALLOWED_AVATAR_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
+
+function isValidProfileColor(color) {
+  return typeof color === 'string' && (/^series-[1-8]$/.test(color) || /^#[0-9a-fA-F]{6}$/.test(color));
+}
+
+function sanitizeProfileInitial(initial) {
+  return (initial || '').trim().slice(0, 2) || null;
+}
 
 async function readJson(file, fallback) {
   try {
@@ -50,6 +61,115 @@ async function loadMergedSettings() {
   return { ...DEFAULT_PROFILE_SETTINGS, ...profile, ...DEFAULT_GLOBAL_SETTINGS, ...global };
 }
 
+async function buildFullBackupPayload(profileId) {
+  const [movies, trash, settings, subscriptions, shareListsRaw, profilesData] = await Promise.all([
+    readJson(moviesFile(profileId), []),
+    readJson(trashFile(profileId), []),
+    readJson(profileSettingsFile(profileId), DEFAULT_PROFILE_SETTINGS),
+    readJson(subscriptionsFile(profileId), []),
+    readJson(shareListsFile(profileId), []),
+    readJson(profilesFile, { profiles: [] }),
+  ]);
+
+  const shareLists = await Promise.all(shareListsRaw.map(async (entry) => {
+    let imageData = null;
+    try {
+      const buf = await fs.readFile(path.join(shareImagesDir(profileId), entry.imageFile));
+      imageData = buf.toString('base64');
+    } catch {
+      // image missing on disk, skip embedding it but keep the record
+    }
+    return { ...entry, imageData };
+  }));
+
+  const profileRecord = profilesData.profiles.find((p) => p.id === profileId);
+  let avatar = null;
+  if (profileRecord && profileRecord.avatarFile) {
+    try {
+      const buf = await fs.readFile(path.join(profileDir(profileId), profileRecord.avatarFile));
+      avatar = { file: profileRecord.avatarFile, data: buf.toString('base64') };
+    } catch {
+      // avatar missing on disk, skip
+    }
+  }
+
+  return {
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    movies,
+    trash,
+    settings,
+    subscriptions,
+    shareLists,
+    profileAppearance: {
+      color: profileRecord ? profileRecord.color : null,
+      initial: profileRecord ? profileRecord.initial : null,
+      avatar,
+    },
+  };
+}
+
+async function applyFullBackupPayload(profileId, payload) {
+  const counts = { movies: 0, trash: 0, subscriptions: 0, shareLists: 0 };
+
+  if (Array.isArray(payload.movies)) {
+    await writeJson(moviesFile(profileId), payload.movies);
+    counts.movies = payload.movies.length;
+  }
+  if (Array.isArray(payload.trash)) {
+    await writeJson(trashFile(profileId), payload.trash);
+    counts.trash = payload.trash.length;
+  }
+  if (payload.settings) await writeJson(profileSettingsFile(profileId), payload.settings);
+  if (Array.isArray(payload.subscriptions)) {
+    const cleanSubscriptions = payload.subscriptions
+      .filter((s) => s && typeof s.platform === 'string')
+      .map((s) => ({
+        platform: s.platform,
+        price: typeof s.price === 'number' && Number.isFinite(s.price) ? s.price : null,
+        active: !!s.active && typeof s.startDate === 'string' && !!s.startDate,
+        startDate: typeof s.startDate === 'string' ? s.startDate : null,
+        cycleDays: Number.isFinite(s.cycleDays) && s.cycleDays > 0 ? s.cycleDays : 30,
+      }));
+    await writeJson(subscriptionsFile(profileId), cleanSubscriptions);
+    counts.subscriptions = cleanSubscriptions.length;
+  }
+
+  if (Array.isArray(payload.shareLists)) {
+    const dir = shareImagesDir(profileId);
+    await fs.mkdir(dir, { recursive: true });
+    const cleanEntries = await Promise.all(payload.shareLists.map(async (entry) => {
+      const { imageData, imageFile, ...rest } = entry;
+      if (!imageData) return { ...rest, imageFile: null };
+      const safeFile = `list-${crypto.randomUUID()}.png`;
+      await fs.writeFile(path.join(dir, safeFile), Buffer.from(imageData, 'base64'));
+      return { ...rest, imageFile: safeFile };
+    }));
+    await writeJson(shareListsFile(profileId), cleanEntries);
+    counts.shareLists = cleanEntries.length;
+  }
+
+  if (payload.profileAppearance) {
+    const profilesData = await readJson(profilesFile, { profiles: [], lastActiveProfileId: null });
+    const profileRecord = profilesData.profiles.find((p) => p.id === profileId);
+    if (profileRecord) {
+      const { color, initial, avatar } = payload.profileAppearance;
+      if (isValidProfileColor(color)) profileRecord.color = color;
+      if (initial !== undefined) profileRecord.initial = sanitizeProfileInitial(initial);
+      if (avatar && avatar.data) {
+        const ext = path.extname(String(avatar.file || '')).toLowerCase();
+        const safeExt = ALLOWED_AVATAR_EXTENSIONS.has(ext) ? ext : '.png';
+        const safeFile = `avatar${safeExt}`;
+        await fs.writeFile(path.join(profileDir(profileId), safeFile), Buffer.from(avatar.data, 'base64'));
+        profileRecord.avatarFile = safeFile;
+      }
+      await writeJson(profilesFile, profilesData);
+    }
+  }
+
+  return counts;
+}
+
 async function runAutoBackup() {
   if (!currentProfileId) return;
   const settings = await loadMergedSettings();
@@ -61,9 +181,9 @@ async function runAutoBackup() {
   try {
     await fs.access(todayFile);
   } catch {
-    const movies = await readJson(moviesFile(currentProfileId), []);
+    const payload = await buildFullBackupPayload(currentProfileId);
     await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(todayFile, JSON.stringify({ movies }, null, 2), 'utf-8');
+    await fs.writeFile(todayFile, JSON.stringify(payload, null, 2), 'utf-8');
   }
   try {
     const files = await fs.readdir(dir);
@@ -175,32 +295,84 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
+function buildAvatarUrl(dir, avatarFile) {
+  if (!avatarFile) return null;
+  return `file://${path.join(dir, avatarFile).replace(/\\/g, '/')}?t=${Date.now()}`;
+}
+
+function withAvatarUrl(profile) {
+  return { ...profile, avatarUrl: buildAvatarUrl(profileDir(profile.id), profile.avatarFile) };
+}
+
 ipcMain.handle('profiles:list', async () => {
-  return readJson(profilesFile, { profiles: [], lastActiveProfileId: null });
+  const data = await readJson(profilesFile, { profiles: [], lastActiveProfileId: null });
+  return { ...data, profiles: data.profiles.map(withAvatarUrl) };
 });
 
-ipcMain.handle('profiles:create', async (_event, name, color) => {
+ipcMain.handle('profiles:create', async (_event, name, color, initial) => {
   const data = await readJson(profilesFile, { profiles: [], lastActiveProfileId: null });
   const id = crypto.randomUUID();
   const profile = {
     id,
     name: (name || '').trim() || 'Perfil',
     color: color || 'series-1',
+    initial: sanitizeProfileInitial(initial),
+    avatarFile: null,
     createdAt: new Date().toISOString(),
   };
   data.profiles.push(profile);
   await writeJson(profilesFile, data);
   await fs.mkdir(profileDir(id), { recursive: true });
-  return profile;
+  return withAvatarUrl(profile);
 });
 
-ipcMain.handle('profiles:rename', async (_event, id, name) => {
+ipcMain.handle('profiles:update', async (_event, id, updates) => {
   const data = await readJson(profilesFile, { profiles: [], lastActiveProfileId: null });
   const profile = data.profiles.find((p) => p.id === id);
   if (!profile) return { error: 'NOT_FOUND' };
-  profile.name = (name || '').trim() || profile.name;
+  if (updates.name !== undefined) profile.name = (updates.name || '').trim() || profile.name;
+  if (updates.color !== undefined) profile.color = updates.color || profile.color;
+  if (updates.initial !== undefined) profile.initial = sanitizeProfileInitial(updates.initial);
   await writeJson(profilesFile, data);
-  return { ok: true };
+  return { ok: true, profile: withAvatarUrl(profile) };
+});
+
+ipcMain.handle('profiles:pickAvatar', async (_event, id) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    title: 'Elegir foto de perfil',
+    filters: [{ name: 'Imágenes', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }],
+    properties: ['openFile'],
+  });
+  if (canceled || !filePaths.length) return { canceled: true };
+
+  const data = await readJson(profilesFile, { profiles: [], lastActiveProfileId: null });
+  const profile = data.profiles.find((p) => p.id === id);
+  if (!profile) return { canceled: false, error: 'NOT_FOUND' };
+
+  if (profile.avatarFile) {
+    await fs.unlink(path.join(profileDir(id), profile.avatarFile)).catch(() => {});
+  }
+  const ext = path.extname(filePaths[0]).toLowerCase() || '.png';
+  const avatarFile = `avatar${ext}`;
+  await fs.mkdir(profileDir(id), { recursive: true });
+  await fs.copyFile(filePaths[0], path.join(profileDir(id), avatarFile));
+  profile.avatarFile = avatarFile;
+  await writeJson(profilesFile, data);
+
+  return { canceled: false, ok: true, profile: withAvatarUrl(profile) };
+});
+
+ipcMain.handle('profiles:clearAvatar', async (_event, id) => {
+  const data = await readJson(profilesFile, { profiles: [], lastActiveProfileId: null });
+  const profile = data.profiles.find((p) => p.id === id);
+  if (!profile) return { error: 'NOT_FOUND' };
+  if (profile.avatarFile) {
+    await fs.unlink(path.join(profileDir(id), profile.avatarFile)).catch(() => {});
+    profile.avatarFile = null;
+  }
+  await writeJson(profilesFile, data);
+  return { ok: true, profile: withAvatarUrl(profile) };
 });
 
 ipcMain.handle('profiles:delete', async (_event, id) => {
@@ -224,7 +396,8 @@ ipcMain.handle('profiles:delete', async (_event, id) => {
 });
 
 ipcMain.handle('profiles:listDeleted', async () => {
-  return readJson(deletedProfilesFile, []);
+  const deleted = await readJson(deletedProfilesFile, []);
+  return deleted.map((p) => ({ ...p, avatarUrl: buildAvatarUrl(deletedProfileDir(p.id), p.avatarFile) }));
 });
 
 ipcMain.handle('profiles:restore', async (_event, id) => {
@@ -238,10 +411,17 @@ ipcMain.handle('profiles:restore', async (_event, id) => {
   await fs.rename(deletedProfileDir(id), profileDir(id)).catch(() => fs.mkdir(profileDir(id), { recursive: true }));
 
   const data = await readJson(profilesFile, { profiles: [], lastActiveProfileId: null });
-  const restored = { id: profile.id, name: profile.name, color: profile.color, createdAt: profile.createdAt || new Date().toISOString() };
+  const restored = {
+    id: profile.id,
+    name: profile.name,
+    color: profile.color,
+    initial: profile.initial || null,
+    avatarFile: profile.avatarFile || null,
+    createdAt: profile.createdAt || new Date().toISOString(),
+  };
   data.profiles.push(restored);
   await writeJson(profilesFile, data);
-  return { ok: true, profile: restored };
+  return { ok: true, profile: withAvatarUrl(restored) };
 });
 
 ipcMain.handle('profiles:purgeDeleted', async (_event, id) => {
@@ -504,6 +684,35 @@ ipcMain.handle('tmdb:trending', async () => {
   }
 });
 
+ipcMain.handle('tmdb:providerLogos', async () => {
+  const settings = await loadMergedSettings();
+  const apiKey = settings.tmdbApiKey;
+  const language = settings.language || 'es-ES';
+  const region = settings.region || 'ES';
+  if (!apiKey) return { error: 'NO_API_KEY' };
+  try {
+    const [movieRes, tvRes] = await Promise.all([
+      fetch(`https://api.themoviedb.org/3/watch/providers/movie?language=${language}&watch_region=${region}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      }),
+      fetch(`https://api.themoviedb.org/3/watch/providers/tv?language=${language}&watch_region=${region}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      }),
+    ]);
+    const movieJson = movieRes.ok ? await movieRes.json() : { results: [] };
+    const tvJson = tvRes.ok ? await tvRes.json() : { results: [] };
+    const logos = {};
+    [...(movieJson.results || []), ...(tvJson.results || [])].forEach((p) => {
+      if (p.provider_name && p.logo_path && !logos[p.provider_name]) {
+        logos[p.provider_name] = `https://image.tmdb.org/t/p/original${p.logo_path}`;
+      }
+    });
+    return { logos };
+  } catch (err) {
+    return { error: 'NETWORK_ERROR', message: err.message };
+  }
+});
+
 ipcMain.handle('shareLists:list', async () => {
   const lists = await readJson(shareListsFile(currentProfileId), []);
   return lists.map((l) => ({ ...l, imageUrl: `file://${path.join(shareImagesDir(currentProfileId), l.imageFile).replace(/\\/g, '/')}` }));
@@ -542,6 +751,22 @@ ipcMain.handle('shareLists:openImage', async (_event, id) => {
   return { ok: true };
 });
 
+ipcMain.handle('subscriptions:list', async () => {
+  return readJson(subscriptionsFile(currentProfileId), []);
+});
+
+ipcMain.handle('subscriptions:upsert', async (_event, platform, updates) => {
+  const list = await readJson(subscriptionsFile(currentProfileId), []);
+  let entry = list.find((s) => s.platform === platform);
+  if (!entry) {
+    entry = { platform, price: null, active: false, startDate: null, cycleDays: 30 };
+    list.push(entry);
+  }
+  Object.assign(entry, updates);
+  await writeJson(subscriptionsFile(currentProfileId), list);
+  return list;
+});
+
 ipcMain.handle('data:export', async () => {
   const win = BrowserWindow.getFocusedWindow();
   const { canceled, filePath } = await dialog.showSaveDialog(win, {
@@ -550,8 +775,8 @@ ipcMain.handle('data:export', async () => {
     filters: [{ name: 'JSON', extensions: ['json'] }],
   });
   if (canceled || !filePath) return { canceled: true };
-  const movies = await readJson(moviesFile(currentProfileId), []);
-  await fs.writeFile(filePath, JSON.stringify({ movies }, null, 2), 'utf-8');
+  const payload = await buildFullBackupPayload(currentProfileId);
+  await fs.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf-8');
   return { canceled: false, filePath };
 });
 
@@ -566,11 +791,20 @@ ipcMain.handle('data:import', async () => {
   try {
     const raw = await fs.readFile(filePaths[0], 'utf-8');
     const parsed = JSON.parse(raw);
-    const movies = Array.isArray(parsed) ? parsed : parsed.movies;
-    if (!Array.isArray(movies)) return { canceled: false, error: 'INVALID_FILE' };
-    return { canceled: false, movies };
+    const payload = Array.isArray(parsed) ? { movies: parsed } : parsed;
+    if (!Array.isArray(payload.movies)) return { canceled: false, error: 'INVALID_FILE' };
+    return { canceled: false, payload };
   } catch (err) {
     return { canceled: false, error: 'INVALID_FILE' };
+  }
+});
+
+ipcMain.handle('data:applyImport', async (_event, payload) => {
+  try {
+    const counts = await applyFullBackupPayload(currentProfileId, payload);
+    return { ok: true, counts };
+  } catch (err) {
+    return { error: 'APPLY_FAILED', message: err.message };
   }
 });
 
@@ -606,10 +840,10 @@ ipcMain.handle('app:openBackupsFolder', async () => {
 ipcMain.handle('app:runBackupNow', async () => {
   const dir = backupsDir(currentProfileId);
   await fs.mkdir(dir, { recursive: true });
-  const movies = await readJson(moviesFile(currentProfileId), []);
+  const payload = await buildFullBackupPayload(currentProfileId);
   const today = new Date().toISOString().slice(0, 10);
   const filePath = path.join(dir, `backup-${today}.json`);
-  await fs.writeFile(filePath, JSON.stringify({ movies }, null, 2), 'utf-8');
+  await fs.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf-8');
   return { filePath };
 });
 

@@ -61,6 +61,9 @@ const RECS_TV_QUOTA = 2;
 let upcomingCache = null;
 let shareLists = [];
 let shareConfigPreview = null;
+let subscriptions = [];
+let providerLogos = {};
+const NON_SUBSCRIPTION_PLATFORMS = new Set(['Cine', 'DVD/Blu-ray', 'Pirata', 'No recuerdo', 'Otra']);
 let trash = [];
 const TRASH_RETENTION_DAYS = 30;
 const selectionMode = { pendientes: false, vistas: false };
@@ -79,6 +82,10 @@ function escapeHtml(str) {
   }[c]));
 }
 
+function pluralize(n, singular, plural) {
+  return n === 1 ? singular : (plural || `${singular}s`);
+}
+
 function getPending() { return movies.filter((m) => m.status === 'pendiente' || m.status === 'viendo'); }
 function getWatched() { return movies.filter((m) => m.status === 'vista'); }
 
@@ -93,6 +100,7 @@ async function init() {
   settings = await window.api.loadSettings();
   trash = await window.api.loadTrash();
   shareLists = await window.api.listShareLists();
+  subscriptions = await window.api.listSubscriptions();
   await purgeOldTrash();
   $('#tmdb-key').value = settings.tmdbApiKey || '';
   $('#tmdb-language').value = settings.language || 'es-ES';
@@ -104,18 +112,31 @@ async function init() {
   renderAll();
   renderTrash();
   renderShareListsGrid();
+  renderSubscriptions();
+  fillSubPlannerPlatforms();
+  updateSubPlannerResult();
   updateNavIndicator();
   switchView(localStorage.getItem(pk('pref-start-view')) || 'dashboard');
   if (localStorage.getItem(pk('pref-recs-enabled')) !== 'false') loadRecommendations();
   loadUpcomingReleases();
+  loadProviderLogos();
   window.api.getAppVersion().then((v) => { $('#app-version').textContent = `v${v}`; });
   updateProfileBadge();
 }
 
 /* ---------- Profiles ---------- */
 
-function profileInitial(name) {
+function profileInitial(profile) {
+  if (profile && profile.initial) return profile.initial.trim().toUpperCase();
+  const name = profile && profile.name;
   return (name || '?').trim().charAt(0).toUpperCase() || '?';
+}
+
+function avatarInnerHtml(profile) {
+  if (profile && profile.avatarUrl) {
+    return `<img class="avatar-img" src="${profile.avatarUrl}" alt="">`;
+  }
+  return escapeHtml(profileInitial(profile));
 }
 
 async function resolveActiveProfile() {
@@ -140,17 +161,26 @@ function updateProfileBadge() {
   const avatarEl = $('#profile-avatar');
   if (!nameEl || !avatarEl || !profile) return;
   nameEl.textContent = profile.name;
-  avatarEl.textContent = profileInitial(profile.name);
-  avatarEl.style.background = `var(--${profile.color || 'series-1'})`;
+  avatarEl.innerHTML = avatarInnerHtml(profile);
+  avatarEl.style.background = profile.avatarUrl ? 'transparent' : profileColorValue(profile.color);
 }
 
-const PROFILE_COLORS = ['series-1', 'series-2', 'series-3', 'series-4', 'series-5', 'series-6', 'series-7', 'series-8'];
+const PROFILE_COLORS = [
+  'series-1', 'series-2', 'series-3', 'series-4', 'series-5', 'series-6', 'series-7', 'series-8',
+  '#14b8a6', '#84cc16', '#f97316', '#6366f1', '#10b981', '#ff6f59', '#d6409f', '#ca8a04',
+  '#0ea5e9', '#a855f7', '#ec4899', '#eab308', '#059669', '#dc2626', '#64748b', '#0891b2',
+];
+
+function profileColorValue(color) {
+  if (!color) return 'var(--series-1)';
+  return color.startsWith('series-') ? `var(--${color})` : color;
+}
 
 function renderProfileGrid(mode) {
   const grid = $('#profile-grid');
   grid.innerHTML = allProfiles.map((p) => `
     <div class="profile-card" data-id="${p.id}">
-      <div class="profile-card-avatar" style="background:var(--${p.color || 'series-1'})">${escapeHtml(profileInitial(p.name))}</div>
+      <div class="profile-card-avatar" style="background:${p.avatarUrl ? 'transparent' : profileColorValue(p.color)}">${avatarInnerHtml(p)}</div>
       <div class="profile-card-name">${escapeHtml(p.name)}</div>
       ${mode === 'manage' ? `
         <div class="profile-card-actions">
@@ -203,7 +233,7 @@ function showProfilePicker({ forced }) {
         const daysLeft = Math.max(30 - days, 0);
         return `
           <div class="profile-deleted-item" data-id="${p.id}">
-            <div class="profile-deleted-avatar" style="background:var(--${p.color || 'series-1'})">${escapeHtml(profileInitial(p.name))}</div>
+            <div class="profile-deleted-avatar" style="background:${p.avatarUrl ? 'transparent' : profileColorValue(p.color)}">${avatarInnerHtml(p)}</div>
             <div class="profile-deleted-info">
               <div class="profile-deleted-name">${escapeHtml(p.name)}</div>
               <div class="profile-deleted-meta">Eliminado hace ${days} día${days === 1 ? '' : 's'} · disponible ${daysLeft} día${daysLeft === 1 ? '' : 's'} más</div>
@@ -243,6 +273,8 @@ function showProfilePicker({ forced }) {
       deleteConfirmInput.removeEventListener('input', onDeleteConfirmInput);
       deleteConfirmBtn.removeEventListener('click', onDeleteConfirmClick);
       deleteCancelBtn.removeEventListener('click', closeDeleteConfirm);
+      $('#profile-form-avatar-pick').removeEventListener('click', onAvatarPick);
+      $('#profile-form-avatar-clear').removeEventListener('click', onAvatarClear);
       hideOverlay(overlay);
     }
 
@@ -302,7 +334,9 @@ function showProfilePicker({ forced }) {
       form.dataset.editId = '';
       $('#profile-form-title').textContent = 'Nuevo perfil';
       $('#profile-form-name').value = '';
+      $('#profile-form-initial').value = '';
       renderColorSwatches(PROFILE_COLORS[allProfiles.length % PROFILE_COLORS.length]);
+      renderAvatarSection(null);
       $('#profile-form-name').focus();
     }
 
@@ -310,16 +344,56 @@ function showProfilePicker({ forced }) {
       closeDeleteConfirm();
       form.classList.remove('hidden');
       form.dataset.editId = profile.id;
-      $('#profile-form-title').textContent = 'Renombrar perfil';
+      $('#profile-form-title').textContent = 'Editar perfil';
       $('#profile-form-name').value = profile.name;
+      $('#profile-form-initial').value = profile.initial || '';
       renderColorSwatches(profile.color || 'series-1');
+      renderAvatarSection(profile);
       $('#profile-form-name').focus();
+    }
+
+    function renderAvatarSection(profile) {
+      const section = $('#profile-form-avatar-section');
+      const preview = $('#profile-form-avatar-preview');
+      const clearBtn = $('#profile-form-avatar-clear');
+      if (!profile) {
+        section.classList.add('hidden');
+        return;
+      }
+      section.classList.remove('hidden');
+      preview.style.background = profile.avatarUrl ? 'transparent' : profileColorValue(profile.color);
+      preview.innerHTML = avatarInnerHtml(profile);
+      clearBtn.classList.toggle('hidden', !profile.avatarUrl);
+    }
+
+    function applyProfileUpdate(updatedProfile) {
+      const idx = allProfiles.findIndex((p) => p.id === updatedProfile.id);
+      if (idx !== -1) allProfiles[idx] = { ...allProfiles[idx], ...updatedProfile };
+      renderAvatarSection(updatedProfile);
+      renderGrid();
+      if (updatedProfile.id === activeProfileId) updateProfileBadge();
+    }
+
+    async function onAvatarPick() {
+      const id = form.dataset.editId;
+      if (!id) return;
+      const res = await window.api.pickProfileAvatar(id);
+      if (res.canceled || res.error) return;
+      applyProfileUpdate(res.profile);
+    }
+
+    async function onAvatarClear() {
+      const id = form.dataset.editId;
+      if (!id) return;
+      const res = await window.api.clearProfileAvatar(id);
+      if (res.error) return;
+      applyProfileUpdate(res.profile);
     }
 
     function renderColorSwatches(selected) {
       const wrap = $('#profile-form-colors');
       wrap.innerHTML = PROFILE_COLORS.map((c) => `
-        <button type="button" class="profile-color-swatch${c === selected ? ' selected' : ''}" data-color="${c}" style="background:var(--${c})"></button>
+        <button type="button" class="profile-color-swatch${c === selected ? ' selected' : ''}" data-color="${c}" style="background:${profileColorValue(c)}"></button>
       `).join('');
       wrap.dataset.selected = selected;
       Array.from(wrap.querySelectorAll('.profile-color-swatch')).forEach((btn) => {
@@ -383,16 +457,15 @@ function showProfilePicker({ forced }) {
       const name = $('#profile-form-name').value.trim();
       if (!name) return;
       const color = $('#profile-form-colors').dataset.selected;
+      const initial = $('#profile-form-initial').value.trim().slice(0, 2);
       const editId = form.dataset.editId;
       if (editId) {
-        await window.api.renameProfile(editId, name);
-        const profile = allProfiles.find((p) => p.id === editId);
-        if (profile) profile.name = name;
+        const res = await window.api.updateProfile(editId, { name, color, initial });
+        if (res.profile) applyProfileUpdate(res.profile);
         form.classList.add('hidden');
-        renderGrid();
         return;
       }
-      const created = await window.api.createProfile(name, color);
+      const created = await window.api.createProfile(name, color, initial);
       allProfiles.push(created);
       form.classList.add('hidden');
       if (forced) {
@@ -415,6 +488,8 @@ function showProfilePicker({ forced }) {
     deleteConfirmInput.addEventListener('input', onDeleteConfirmInput);
     deleteConfirmBtn.addEventListener('click', onDeleteConfirmClick);
     deleteCancelBtn.addEventListener('click', closeDeleteConfirm);
+    $('#profile-form-avatar-pick').addEventListener('click', onAvatarPick);
+    $('#profile-form-avatar-clear').addEventListener('click', onAvatarClear);
 
     showOverlay(overlay);
   });
@@ -714,6 +789,11 @@ function switchView(view) {
   $$('.nav-item').forEach((btn) => btn.classList.toggle('active', btn.dataset.view === view));
   $$('.view').forEach((section) => section.classList.toggle('active', section.id === `view-${view}`));
   updateNavIndicator();
+  if (view === 'suscripciones') {
+    renderSubscriptions();
+    fillSubPlannerPlatforms();
+    updateSubPlannerResult();
+  }
 }
 
 /* ---------- Platform selects ---------- */
@@ -1572,6 +1652,223 @@ async function deleteShareListEntry(id) {
   shareLists = shareLists.filter((l) => l.id !== id);
   renderShareListsGrid();
   showToast('Lista eliminada', 'error');
+}
+
+/* ---------- Subscriptions ---------- */
+
+function subscriptionPlatforms() {
+  return PLATFORMS.filter((p) => !NON_SUBSCRIPTION_PLATFORMS.has(p));
+}
+
+function getSubscription(platform) {
+  return subscriptions.find((s) => s.platform === platform)
+    || { platform, price: null, active: false, startDate: null, cycleDays: 30 };
+}
+
+function subscriptionDaysRemaining(sub) {
+  if (!sub.active || !sub.startDate) return null;
+  const cycle = sub.cycleDays || 30;
+  const start = new Date(sub.startDate);
+  const elapsedDays = Math.floor((Date.now() - start.getTime()) / 86400000);
+  if (!Number.isFinite(elapsedDays)) return null;
+  return Math.min(Math.max(cycle - elapsedDays, 0), cycle);
+}
+
+function resolveProviderLogo(platform) {
+  if (providerLogos[platform]) return providerLogos[platform];
+  const tmdbName = Object.keys(PROVIDER_NAME_MAP).find((k) => PROVIDER_NAME_MAP[k] === platform);
+  return tmdbName && providerLogos[tmdbName] ? providerLogos[tmdbName] : null;
+}
+
+async function loadProviderLogos() {
+  const res = await window.api.getProviderLogos();
+  if (res && res.logos) {
+    providerLogos = res.logos;
+    renderSubscriptions();
+  }
+}
+
+async function activateSubscription(platform, dateValue, cycleDays) {
+  const others = subscriptions.filter((s) => s.active && s.platform !== platform);
+  if (others.length) {
+    const other = others[0];
+    const rem = subscriptionDaysRemaining(other);
+    const remText = rem === 0 ? 'renueva hoy' : `${rem} día${rem === 1 ? '' : 's'} restantes`;
+    if (!confirm(`Ya tienes ${other.platform} activa (${remText}). Para no pagar dos a la vez, ¿seguro que quieres activar ${platform} también?`)) {
+      return false;
+    }
+  }
+  const resolvedCycle = cycleDays || getSubscription(platform).cycleDays || 30;
+  subscriptions = await window.api.upsertSubscription(platform, { active: true, startDate: dateValue, cycleDays: resolvedCycle });
+  return true;
+}
+
+function renderSubscriptions() {
+  const grid = $('#subscriptions-grid');
+  if (!grid) return;
+  grid.innerHTML = subscriptionPlatforms().map((platform, i) => {
+    const sub = getSubscription(platform);
+    const logo = resolveProviderLogo(platform);
+    const remaining = subscriptionDaysRemaining(sub) || 0;
+    const badgeColor = SERIES_COLORS[i % SERIES_COLORS.length];
+    const cycleLabel = cycleUnitLabel(sub.cycleDays);
+    const platformEsc = escapeHtml(platform);
+    return `
+      <div class="subscription-card${sub.active ? ' active' : ''}" data-platform="${platformEsc}">
+        <div class="subscription-logo"${logo ? '' : ` style="background:${badgeColor}"`}>${logo ? `<img src="${logo}" alt="${platformEsc}">` : `<span class="subscription-logo-fallback">${escapeHtml(platform.charAt(0))}</span>`}</div>
+        <div class="subscription-name">${platformEsc}</div>
+        <label class="subscription-price-row">
+          <span>€</span>
+          <input type="text" inputmode="decimal" class="subscription-price-input" data-platform="${platformEsc}" value="${sub.price != null ? sub.price : ''}" placeholder="0.00">
+          <span>${cycleLabel}</span>
+        </label>
+        ${sub.active ? `
+          <div class="subscription-status active">Activa · ${remaining === 0 ? 'renueva hoy' : `${remaining} ${pluralize(remaining, 'día', 'días')} restantes`}</div>
+          <button type="button" class="btn subscription-cancel-btn" data-platform="${platformEsc}">Cancelar</button>
+        ` : `
+          <div class="subscription-status">Sin activar</div>
+          <button type="button" class="btn primary subscription-activate-btn" data-platform="${platformEsc}">Activar</button>
+        `}
+        <div class="subscription-activate-row hidden" data-platform="${platformEsc}">
+          <select class="subscription-cycle-select">
+            <option value="30"${sub.cycleDays === 365 ? '' : ' selected'}>Mensual</option>
+            <option value="365"${sub.cycleDays === 365 ? ' selected' : ''}>Anual</option>
+          </select>
+          <input type="date" class="subscription-date-input" value="${new Date().toISOString().slice(0, 10)}">
+          <button type="button" class="btn primary subscription-confirm-btn" data-platform="${platformEsc}">Confirmar</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function cycleUnitLabel(cycleDays) {
+  return cycleDays === 365 ? '/año' : '/mes';
+}
+
+const DAILY_PACE_CAP_MINUTES = 4 * 60;
+
+function computePaceFromWatchedList(watchedList) {
+  if (!watchedList.length) return null;
+
+  const minutesByDay = {};
+  watchedList.forEach((m) => {
+    minutesByDay[m.dateWatched] = (minutesByDay[m.dateWatched] || 0) + m.runtime;
+  });
+  const days = Object.keys(minutesByDay).sort();
+
+  // Cap each day's contribution: days you binge-logged a whole backlog at once
+  // (same dateWatched for many titles) shouldn't inflate your real weekly pace.
+  const cappedTotalMinutes = Object.values(minutesByDay)
+    .reduce((s, minutes) => s + Math.min(minutes, DAILY_PACE_CAP_MINUTES), 0);
+
+  const spanDays = Math.max((new Date(days[days.length - 1]) - new Date(days[0])) / 86400000, 7);
+  const weeks = spanDays / 7;
+  return (cappedTotalMinutes / 60) / weeks;
+}
+
+function computeWeeklyPaceHours() {
+  return computePaceFromWatchedList(getWatched().filter((m) => m.dateWatched && m.runtime));
+}
+
+function computePlatformPaceHours(platform, sinceDate) {
+  return computePaceFromWatchedList(getWatched().filter((m) => (
+    m.dateWatched && m.runtime && m.platform === platform && (!sinceDate || m.dateWatched >= sinceDate)
+  )));
+}
+
+function fillSubPlannerPlatforms() {
+  const select = $('#sub-planner-platform');
+  if (!select) return;
+  const platforms = subscriptionPlatforms();
+  const previousValue = select.value;
+  select.innerHTML = platforms.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+  if (platforms.includes(previousValue)) select.value = previousValue;
+}
+
+function updateSubPlannerResult() {
+  const select = $('#sub-planner-platform');
+  const resultEl = $('#sub-planner-result');
+  if (!select || !resultEl) return;
+  const platform = select.value;
+  const platformEsc = escapeHtml(platform);
+  const sub = getSubscription(platform);
+  const pendingHere = getPending().filter((m) => m.platform === platform);
+
+  if (!pendingHere.length) {
+    resultEl.innerHTML = sub.active
+      ? `<p class="chart-empty">Ya no tienes pendientes en ${platformEsc} — a este ritmo puedes cancelarla en cuanto quieras.</p>`
+      : `<p class="chart-empty">No tienes pendientes en ${platformEsc} todavía.</p>`;
+    return;
+  }
+
+  const withRuntime = pendingHere.filter((m) => m.runtime);
+  const missingCount = pendingHere.length - withRuntime.length;
+  const totalMinutes = withRuntime.reduce((s, m) => s + m.runtime, 0);
+
+  if (!totalMinutes) {
+    resultEl.innerHTML = `<p class="chart-empty">Ninguno de tus pendientes en ${platformEsc} tiene duración registrada (añádelos buscando en TMDB para poder calcularlo).</p>`;
+    return;
+  }
+
+  const platformPace = sub.active ? computePlatformPaceHours(platform, sub.startDate) : null;
+  let effectivePace;
+  let paceSource;
+  if (platformPace && platformPace > 0.1) {
+    effectivePace = platformPace;
+    paceSource = `según tu ritmo en ${platformEsc} desde que la activaste`;
+  } else {
+    const generalPace = computeWeeklyPaceHours();
+    if (generalPace && generalPace > 0.1) {
+      effectivePace = generalPace;
+      paceSource = 'según tu ritmo real de estos meses';
+    } else {
+      effectivePace = 3;
+      paceSource = 'estimado, ya que aún no tienes suficiente historial';
+    }
+  }
+
+  const weeksNeeded = Math.max(Math.ceil((totalMinutes / 60) / effectivePace), 1);
+  const daysNeeded = weeksNeeded * 7;
+  const cycleDays = sub.cycleDays || 30;
+  const isMonthly = cycleDays <= 31;
+  const missingHtml = missingCount
+    ? `<p class="field-hint">${missingCount} ${pluralize(missingCount, 'título', 'títulos')} sin duración registrada no se ${pluralize(missingCount, 'ha', 'han')} podido incluir en el cálculo.</p>`
+    : '';
+  const baseInfo = `
+    <p><strong>${pendingHere.length}</strong> ${pluralize(pendingHere.length, 'título', 'títulos')} ${pluralize(pendingHere.length, 'pendiente', 'pendientes')} en ${platformEsc}, unas <strong>${Math.round(totalMinutes / 60)}h</strong> en total.</p>
+    <p>A ~${effectivePace.toFixed(1)}h/semana (${paceSource}), te llevaría unas <strong>${weeksNeeded} ${pluralize(weeksNeeded, 'semana', 'semanas')}</strong> verlo todo.</p>
+  `;
+
+  if (sub.active) {
+    const remaining = subscriptionDaysRemaining(sub) || 0;
+    const shortfallDays = daysNeeded - remaining;
+    const statusText = daysNeeded <= remaining
+      ? `Con los <strong>${remaining} ${pluralize(remaining, 'día', 'días')}</strong> que te quedan de suscripción vas sobrado: a este ritmo acabarías en unos ${daysNeeded} ${pluralize(daysNeeded, 'día', 'días')}. No hace falta que la renueves solo por esto.`
+      : `A este ritmo <strong>no te va a dar tiempo</strong> antes de que acabe tu ciclo actual (te quedan ${remaining} ${pluralize(remaining, 'día', 'días')}). Necesitarías unos ${shortfallDays} ${pluralize(shortfallDays, 'día', 'días')} más de suscripción para verlo todo.`;
+    resultEl.innerHTML = `${baseInfo}<p>${statusText}</p>${missingHtml}`;
+    return;
+  }
+
+  let commitmentText;
+  let costText = '';
+  if (isMonthly) {
+    const monthsNeeded = Math.max(Math.ceil(daysNeeded / 30), 1);
+    commitmentText = `Eso son aproximadamente <strong>${monthsNeeded} ${pluralize(monthsNeeded, 'mes', 'meses')}</strong> de suscripción`;
+    if (sub.price != null) costText = ` (~${(monthsNeeded * sub.price).toFixed(2)}€)`;
+  } else {
+    const cycleName = cycleDays === 365 ? 'anual' : `cada ${cycleDays} días`;
+    commitmentText = `Como es una suscripción de ciclo largo (${cycleName}) que no se activa y cancela suelta, esas ~${weeksNeeded} ${pluralize(weeksNeeded, 'semana', 'semanas')} equivaldrían a una parte proporcional de lo que ya pagas`;
+    if (sub.price != null) costText = ` (~${((sub.price / cycleDays) * daysNeeded).toFixed(2)}€)`;
+  }
+  const activateLabel = isMonthly ? 'Contratar esta' : 'Registrar esta';
+
+  resultEl.innerHTML = `
+    ${baseInfo}
+    <p>${commitmentText}${costText}.</p>
+    ${missingHtml}
+    <button type="button" class="btn primary" id="sub-planner-activate-btn" data-platform="${platformEsc}">${activateLabel}</button>
+  `;
 }
 
 function animateStatNumbers() {
@@ -2451,17 +2748,31 @@ async function saveMovies() {
 
 /* ---------- Events ---------- */
 
+const NUMERIC_INPUT_ALLOWED_KEYS = ['Backspace', 'Delete', 'Tab', 'Escape', 'Enter', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
+
+function isNumericKeydownAllowed(e, currentValue, allowDecimal) {
+  if (NUMERIC_INPUT_ALLOWED_KEYS.includes(e.key) || e.ctrlKey || e.metaKey) return true;
+  if (allowDecimal && e.key === '.' && !currentValue.includes('.')) return true;
+  return /^[0-9]$/.test(e.key);
+}
+
+function sanitizeNumericValue(value, allowDecimal) {
+  if (!allowDecimal) return value.replace(/\D/g, '');
+  let cleaned = value.replace(/[^0-9.]/g, '');
+  const firstDot = cleaned.indexOf('.');
+  if (firstDot !== -1) cleaned = cleaned.slice(0, firstDot + 1) + cleaned.slice(firstDot + 1).replace(/\./g, '');
+  return cleaned;
+}
+
 function enforceNumericInput(el) {
   el.addEventListener('input', () => {
     const maxLen = el.getAttribute('maxlength');
-    let digits = el.value.replace(/\D/g, '');
+    let digits = sanitizeNumericValue(el.value, false);
     if (maxLen) digits = digits.slice(0, Number(maxLen));
     el.value = digits;
   });
   el.addEventListener('keydown', (e) => {
-    const allowedKeys = ['Backspace', 'Delete', 'Tab', 'Escape', 'Enter', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
-    if (allowedKeys.includes(e.key) || e.ctrlKey || e.metaKey) return;
-    if (!/^[0-9]$/.test(e.key)) e.preventDefault();
+    if (!isNumericKeydownAllowed(e, el.value, false)) e.preventDefault();
   });
 }
 
@@ -2733,12 +3044,44 @@ function bindEvents() {
       status.textContent = 'El archivo seleccionado no es una copia de seguridad válida.';
       return;
     }
-    if (!confirm(`Se importarán ${res.movies.length} películas. Esto reemplazará tu lista actual. ¿Continuar?`)) return;
-    movies = res.movies;
-    await saveMovies();
+    const payload = res.payload;
+    const parts = [`${payload.movies.length} título${payload.movies.length === 1 ? '' : 's'}`];
+    if (Array.isArray(payload.trash)) parts.push(`${payload.trash.length} en la papelera`);
+    if (Array.isArray(payload.subscriptions)) parts.push(`${payload.subscriptions.length} suscripciones`);
+    if (Array.isArray(payload.shareLists)) parts.push(`${payload.shareLists.length} listas de Recomendar`);
+    if (payload.settings) parts.push('tus ajustes');
+    if (payload.profileAppearance) parts.push('la apariencia del perfil (color/foto)');
+    if (!confirm(`Se importará: ${parts.join(', ')}. Esto reemplazará lo anterior de cada uno por lo del archivo (lo que no incluya el archivo se queda como está). ¿Continuar?`)) return;
+
+    const applyRes = await window.api.applyImportedBackup(payload);
+    if (!applyRes || applyRes.error) {
+      status.classList.add('error');
+      status.textContent = 'No se pudo aplicar la copia de seguridad.';
+      return;
+    }
+
+    movies = await window.api.loadMovies();
+    trash = await window.api.loadTrash();
+    subscriptions = await window.api.listSubscriptions();
+    shareLists = await window.api.listShareLists();
+    settings = await window.api.loadSettings();
+    allProfiles = (await window.api.listProfiles()).profiles;
+
+    $('#tmdb-language').value = settings.language || 'es-ES';
+    $('#tmdb-region').value = settings.region || 'ES';
+    $('#auto-backup-toggle').checked = settings.autoBackupEnabled !== false;
+    $('#auto-backup-retention').value = settings.autoBackupRetentionDays || 14;
+
     renderAll();
+    renderTrash();
+    renderSubscriptions();
+    fillSubPlannerPlatforms();
+    updateSubPlannerResult();
+    renderShareListsGrid();
+    updateProfileBadge();
+
     status.classList.remove('error');
-    status.textContent = `Se importaron ${movies.length} películas correctamente.`;
+    status.textContent = `Copia importada correctamente (${applyRes.counts.movies} títulos).`;
   });
 
   $('#btn-import-csv').addEventListener('click', async () => {
@@ -2910,6 +3253,79 @@ function bindEvents() {
       return;
     }
     shareSearchTimer = setTimeout(() => runShareManualSearch(query), 400);
+  });
+
+  $('#subscriptions-grid').addEventListener('click', async (e) => {
+    const activateBtn = e.target.closest('.subscription-activate-btn');
+    const cancelBtn = e.target.closest('.subscription-cancel-btn');
+    const confirmBtn = e.target.closest('.subscription-confirm-btn');
+
+    if (activateBtn) {
+      const card = activateBtn.closest('.subscription-card');
+      card.querySelector('.subscription-activate-row').classList.remove('hidden');
+      activateBtn.classList.add('hidden');
+      return;
+    }
+    if (confirmBtn) {
+      const platform = confirmBtn.dataset.platform;
+      const card = confirmBtn.closest('.subscription-card');
+      const dateVal = card.querySelector('.subscription-date-input').value;
+      const cycleVal = Number(card.querySelector('.subscription-cycle-select').value);
+      if (!dateVal) return;
+      const ok = await activateSubscription(platform, dateVal, cycleVal);
+      if (ok) {
+        renderSubscriptions();
+        updateSubPlannerResult();
+        showToast(`${platform} activada`);
+      }
+      return;
+    }
+    if (cancelBtn) {
+      const platform = cancelBtn.dataset.platform;
+      if (!confirm(`¿Cancelar la suscripción de ${platform}?`)) return;
+      subscriptions = await window.api.upsertSubscription(platform, { active: false, startDate: null });
+      renderSubscriptions();
+      updateSubPlannerResult();
+      showToast(`${platform} cancelada`, 'error');
+    }
+  });
+
+  $('#subscriptions-grid').addEventListener('change', async (e) => {
+    const priceInput = e.target.closest('.subscription-price-input');
+    if (!priceInput) return;
+    const platform = priceInput.dataset.platform;
+    const parsed = Number(priceInput.value);
+    const price = priceInput.value !== '' && Number.isFinite(parsed) ? parsed : null;
+    if (price === null) priceInput.value = '';
+    subscriptions = await window.api.upsertSubscription(platform, { price });
+    updateSubPlannerResult();
+  });
+
+  $('#subscriptions-grid').addEventListener('keydown', (e) => {
+    const priceInput = e.target.closest('.subscription-price-input');
+    if (!priceInput) return;
+    if (!isNumericKeydownAllowed(e, priceInput.value, true)) e.preventDefault();
+  });
+
+  $('#subscriptions-grid').addEventListener('input', (e) => {
+    const priceInput = e.target.closest('.subscription-price-input');
+    if (!priceInput) return;
+    const sanitized = sanitizeNumericValue(priceInput.value, true);
+    if (sanitized !== priceInput.value) priceInput.value = sanitized;
+  });
+
+  $('#sub-planner-platform').addEventListener('change', updateSubPlannerResult);
+  $('#sub-planner-result').addEventListener('click', async (e) => {
+    const btn = e.target.closest('#sub-planner-activate-btn');
+    if (!btn) return;
+    const platform = btn.dataset.platform;
+    const today = new Date().toISOString().slice(0, 10);
+    const ok = await activateSubscription(platform, today);
+    if (ok) {
+      renderSubscriptions();
+      updateSubPlannerResult();
+      showToast(`${platform} activada`);
+    }
   });
 }
 

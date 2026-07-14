@@ -16,6 +16,7 @@ Construida con [Electron](https://www.electronjs.org/) y JavaScript "vanilla" (s
 - [Generar el instalador](#generar-el-instalador)
 - [Conectar con TMDB](#conectar-con-tmdb)
 - [Perfiles: varios usuarios en el mismo ordenador](#perfiles-varios-usuarios-en-el-mismo-ordenador)
+- [Suscripciones: no pagues dos plataformas a la vez](#suscripciones-no-pagues-dos-plataformas-a-la-vez)
 - [Copias de seguridad: cómo funcionan y cómo restaurarlas](#copias-de-seguridad-cómo-funcionan-y-cómo-restaurarlas)
 - [Dónde se guardan tus datos](#dónde-se-guardan-tus-datos)
 - [Tecnologías](#tecnologías)
@@ -57,6 +58,20 @@ Construida con [Electron](https://www.electronjs.org/) y JavaScript "vanilla" (s
   lista para compartir, y queda guardada con fecha en un historial dentro del propio apartado,
   desde donde puedes volver a abrirla o borrarla.
 
+**Suscripciones**
+- Apartado **Suscripciones**: pensado para no pagar varias plataformas de streaming a la vez —
+  contratas una, te pones al día con lo que tienes pendiente ahí, y la cancelas antes de pasar a la
+  siguiente. Aparecen todas tus plataformas con su logo real (vía TMDB), donde puedes guardar el
+  precio tengas o no la suscripción activa, y activar/cancelar con un par de clics indicando fecha
+  de inicio y si el ciclo es mensual o anual.
+- El **planificador** ("¿Qué plataforma me compensa contratar?") calcula, según tu ritmo real de
+  visionado (no una media inventada), cuántas semanas necesitarías para ver todo lo pendiente en
+  esa plataforma y cuánto te costaría — sin dejarse engañar por días en los que volcaste de golpe
+  películas antiguas.
+- Si la plataforma ya está activa, el mensaje cambia solo: te dice si con los días que te quedan
+  vas sobrado o si no te va a dar tiempo, usando tu ritmo real en esa plataforma desde que la
+  activaste.
+
 **Resumen y estadísticas**
 - Pendientes, vistas, películas y series vistas por separado, horas vistas (películas y series por separado), valoración media, antigüedad media de tus pendientes y racha de días seguidos viendo algo.
 - Gráficas de géneros, plataformas, valoraciones, actividad mensual, vistas por año y década de estreno.
@@ -71,7 +86,8 @@ Construida con [Electron](https://www.electronjs.org/) y JavaScript "vanilla" (s
   con un clic sin perder ni una película.
 
 **Personalización**
-- Tema claro/oscuro, color de acento (6 disponibles), color de las gráficas, densidad de las listas y animaciones activables/desactivables.
+- Tema claro/oscuro, color de acento (16 disponibles), color de las gráficas, densidad de las listas y animaciones activables/desactivables.
+- Cada perfil puede tener su propio color (24 disponibles), una inicial personalizada y una foto.
 - Plataformas personalizadas, orden y tamaño de página configurables, panel de inicio a elegir.
 - Copia de seguridad automática configurable (ver más abajo).
 
@@ -89,7 +105,7 @@ PeliculasApp/
 │
 ├── renderer/                 Todo lo que se ve y ejecuta dentro de la ventana.
 │   ├── index.html             Estructura de todas las pantallas (Resumen, Pendientes,
-│   │                           Vistas, Papelera, Recomendar, Ajustes) y los modales.
+│   │                           Vistas, Papelera, Recomendar, Suscripciones, Ajustes) y los modales.
 │   ├── renderer.js             Toda la lógica de la interfaz: render de listas y gráficas,
 │   │                           filtros, formularios, ajustes, animaciones.
 │   ├── style.css               Estilos, temas, animaciones y diseño responsive.
@@ -215,6 +231,31 @@ guardado en **"Perfiles eliminados"** (dentro de "Gestionar perfiles") durante 3
 restaurarse con un clic, con toda su lista y sus copias de seguridad intactas. Pasado ese plazo se
 borra en segundo plano automáticamente.
 
+**Personalizar un perfil**: al editar un perfil puedes ponerle un color (24 disponibles), una
+inicial personalizada de hasta 2 caracteres, o una foto propia — todo desde "Gestionar perfiles".
+
+---
+
+## Suscripciones: no pagues dos plataformas a la vez
+
+La idea de este apartado es sencilla: en vez de tener varias suscripciones de streaming activas
+todo el año, contratas una, te pones al día con lo que tienes pendiente en ella, y la cancelas
+antes de pasar a la siguiente.
+
+**La cuadrícula de plataformas** muestra automáticamente todos tus servicios de streaming (no las
+entradas como "Cine" o "DVD/Blu-ray", que no son suscripciones) con su logo real. En cada una
+puedes guardar el precio aunque no la tengas activa, y activarla con un clic indicando la fecha de
+inicio y si el ciclo es mensual o anual — la app calcula sola los días que te quedan. Si ya tienes
+una plataforma activa y activas otra a la vez, te avisa antes de dejarte seguir, para que no pagues
+dos a la vez sin darte cuenta.
+
+**El planificador** ("¿Qué plataforma me compensa contratar?") responde a la pregunta real: eliges
+una plataforma y te dice cuántos pendientes tienes ahí, cuántas semanas te llevaría verlo todo
+según tu ritmo real de visionado, y cuánto te costaría. El ritmo se calcula a partir de tu propio
+historial (con un tope diario para que un volcado masivo de películas antiguas en un mismo día no
+dispare el cálculo), y si la plataforma seleccionada ya está activa, el texto cambia solo para
+decirte si con los días que te quedan vas sobrado o si necesitas mantenerla activa un poco más.
+
 ---
 
 ## Copias de seguridad: cómo funcionan y cómo restaurarlas
@@ -222,6 +263,11 @@ borra en segundo plano automáticamente.
 Las copias de seguridad son **por perfil**: si tienes varios perfiles, cada uno hace las suyas por
 su cuenta con su propia configuración (activadas/desactivadas, días de retención), y restaurar una
 copia en un perfil no afecta para nada a los demás.
+
+Cada copia incluye **todo lo de ese perfil**: tu lista de pendientes/vistas, la Papelera, los
+ajustes (idioma, región, preferencias de copia — no la clave de TMDB, que es global y no se toca),
+las suscripciones que llevas registradas, y las listas del apartado Recomendar junto con sus
+imágenes generadas. También el color y la foto de perfil, si le has puesto una.
 
 ### Automáticas
 
@@ -240,18 +286,20 @@ Los botones "Exportar" e "Importar" hacen lo mismo pero eligiendo tú el archivo
 1. Ajustes → **"Abrir carpeta de copias"** para ver los archivos `backup-AAAA-MM-DD.json`
    disponibles (esto abre la carpeta correcta automáticamente, sea cual sea el ordenador).
 2. Ajustes → **"Importar"** y selecciona el archivo que quieras restaurar.
-3. Confirma el aviso: importar **reemplaza** tu lista actual por la del archivo, no la mezcla.
+3. Confirma el aviso: te dice exactamente qué va a reemplazar (títulos, papelera, suscripciones,
+   listas de Recomendar, ajustes, apariencia del perfil) antes de continuar — importar **reemplaza**
+   todo eso por lo del archivo, no lo mezcla con lo que ya tenías.
 
-Esto solo restaura tu lista de películas/series; no afecta a la Papelera, a tus listas de
-Recomendar ni a tus ajustes.
+Las copias antiguas (de antes de esta función) solo tenían la lista de títulos — siguen
+importándose sin problema, simplemente no traen consigo lo demás porque nunca lo guardaron.
 
 ### Llevar tus datos a otro ordenador
 
 Cada instalación es independiente: en un ordenador nuevo, la app empieza sin perfiles, sin
-sincronizarse con las de otros ordenadores. Para trasladar tu lista, usa Exportar en el ordenador
-de origen e Importar en el de destino (creando antes el mismo perfil), o copia manualmente la
-carpeta del perfil completa de un ordenador a otro (ver más abajo) para llevarte también la
-papelera, las copias y las listas de Recomendar.
+sincronizarse con las de otros ordenadores. Para trasladar todo tu perfil (títulos, papelera,
+suscripciones, listas de Recomendar, apariencia), usa Exportar en el ordenador de origen e
+Importar en el de destino (creando antes un perfil ahí), o copia manualmente la carpeta del perfil
+completa de un ordenador a otro (ver más abajo).
 
 ---
 
@@ -272,8 +320,10 @@ usuario tiene su propia subcarpeta:
         ├── trash.json        Papelera (elementos eliminados, purga automática a los 30 días).
         ├── settings.json     Idioma, región y preferencias de copia de seguridad de este perfil.
         ├── backups\          Copias de seguridad automáticas y manuales de este perfil.
+        ├── subscriptions.json Las plataformas que has activado, con precio, fecha y ciclo.
         ├── share-lists.json  Historial de listas generadas en el apartado Recomendar.
-        └── share-images\     Las imágenes PNG generadas para esas listas.
+        ├── share-images\     Las imágenes PNG generadas para esas listas.
+        └── avatar.*          Tu foto de perfil, si le has puesto una.
 ```
 
 En Windows normalmente es `C:\Users\<tu usuario>\AppData\Roaming\peliculas-app\`. Puedes abrir la
