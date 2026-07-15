@@ -62,7 +62,9 @@ let upcomingCache = null;
 let shareLists = [];
 let shareConfigPreview = null;
 let subscriptions = [];
+let subscriptionHistory = [];
 let providerLogos = {};
+let providerIds = {};
 const NON_SUBSCRIPTION_PLATFORMS = new Set(['Cine', 'DVD/Blu-ray', 'Pirata', 'No recuerdo', 'Otra']);
 let trash = [];
 const TRASH_RETENTION_DAYS = 30;
@@ -101,6 +103,7 @@ async function init() {
   trash = await window.api.loadTrash();
   shareLists = await window.api.listShareLists();
   subscriptions = await window.api.listSubscriptions();
+  subscriptionHistory = await window.api.listSubscriptionHistory();
   await purgeOldTrash();
   $('#tmdb-key').value = settings.tmdbApiKey || '';
   $('#tmdb-language').value = settings.language || 'es-ES';
@@ -113,6 +116,7 @@ async function init() {
   renderTrash();
   renderShareListsGrid();
   renderSubscriptions();
+  renderSubscriptionHistory();
   fillSubPlannerPlatforms();
   updateSubPlannerResult();
   updateNavIndicator();
@@ -814,6 +818,7 @@ function switchView(view) {
   updateNavIndicator();
   if (view === 'suscripciones') {
     renderSubscriptions();
+    renderSubscriptionHistory();
     fillSubPlannerPlatforms();
     updateSubPlannerResult();
   }
@@ -1091,10 +1096,24 @@ async function loadRecommendations() {
     if (res && res.results) res.results.forEach(addResult);
   }
 
-  const trending = await window.api.getTrending();
-  if (trending && !trending.error) {
-    (trending.movies || []).forEach(addResult);
-    (trending.tv || []).forEach(addResult);
+  // Prefer discovery from a platform you currently have active (actually watchable right now)
+  // over generic trending, when we can resolve at least one active platform to a TMDB provider.
+  const activeProviderIds = subscriptions
+    .filter((s) => s.active)
+    .map((s) => resolveProviderId(s.platform))
+    .filter(Boolean);
+
+  let discovery = activeProviderIds.length
+    ? await window.api.discoverByProviders(activeProviderIds, ['movie', 'tv'])
+    : null;
+  const hasDiscoveryResults = discovery && !discovery.error
+    && ((discovery.movies && discovery.movies.length) || (discovery.tv && discovery.tv.length));
+  if (!hasDiscoveryResults) {
+    discovery = await window.api.getTrending();
+  }
+  if (discovery && !discovery.error) {
+    (discovery.movies || []).forEach(addResult);
+    (discovery.tv || []).forEach(addResult);
   }
 
   recommendationsMoviePool = moviePool;
@@ -1239,7 +1258,7 @@ function buildShareList(options) {
 function openShareConfigModal() {
   shareTypeSelection = new Set(['pelicula', 'serie']);
   shareGenreSelection = new Set();
-  sharePlatformSelection = new Set();
+  sharePlatformSelection = new Set(subscriptions.filter((s) => s.active).map((s) => s.platform));
   sharePagers.rated = makePager();
   sharePagers.pending = makePager();
   sharePagers.discovery = makePager();
@@ -1295,7 +1314,7 @@ function renderShareGenreChips() {
 
 function renderSharePlatformChips() {
   const wrap = $('#share-platform-chips');
-  wrap.innerHTML = PLATFORMS.map((p) => `<span class="chip" data-platform="${escapeHtml(p)}">${escapeHtml(p)}</span>`).join('');
+  wrap.innerHTML = PLATFORMS.map((p) => `<span class="chip${sharePlatformSelection.has(p) ? ' selected' : ''}" data-platform="${escapeHtml(p)}">${escapeHtml(p)}</span>`).join('');
   wrap.querySelectorAll('.chip').forEach((chip) => {
     chip.addEventListener('click', () => {
       const p = chip.dataset.platform;
@@ -1703,17 +1722,30 @@ function resolveProviderLogo(platform) {
   return tmdbName && providerLogos[tmdbName] ? providerLogos[tmdbName] : null;
 }
 
+function resolveProviderId(platform) {
+  if (providerIds[platform]) return providerIds[platform];
+  const tmdbName = Object.keys(PROVIDER_NAME_MAP).find((k) => PROVIDER_NAME_MAP[k] === platform);
+  return tmdbName && providerIds[tmdbName] ? providerIds[tmdbName] : null;
+}
+
 async function loadProviderLogos() {
   const res = await window.api.getProviderLogos();
   if (res && res.logos) {
     providerLogos = res.logos;
+    providerIds = res.providerIds || {};
     renderSubscriptions();
   }
+}
+
+function invalidateRecommendations() {
+  recommendationsMoviePool = null;
+  recommendationsTvPool = null;
 }
 
 async function activateSubscription(platform, dateValue, cycleDays) {
   const resolvedCycle = cycleDays || getSubscription(platform).cycleDays || 30;
   subscriptions = await window.api.upsertSubscription(platform, { active: true, startDate: dateValue, cycleDays: resolvedCycle });
+  invalidateRecommendations();
   return true;
 }
 
@@ -1758,6 +1790,56 @@ function renderSubscriptions() {
 
 function cycleUnitLabel(cycleDays) {
   return cycleDays === 365 ? '/año' : '/mes';
+}
+
+function subscriptionHistoryCost(entry) {
+  if (entry.price == null) return null;
+  const start = new Date(entry.startDate);
+  const end = new Date(entry.endDate);
+  const days = Math.max(Math.round((end - start) / 86400000), 1);
+  const cycleDays = entry.cycleDays || 30;
+  return (entry.price / cycleDays) * days;
+}
+
+function renderSubscriptionHistory() {
+  const listEl = $('#sub-history-list');
+  const summaryEl = $('#sub-history-summary');
+  const emptyEl = $('#sub-history-empty');
+  if (!listEl || !summaryEl || !emptyEl) return;
+
+  if (!subscriptionHistory.length) {
+    listEl.innerHTML = '';
+    summaryEl.innerHTML = '';
+    emptyEl.classList.remove('hidden');
+    return;
+  }
+  emptyEl.classList.add('hidden');
+
+  const totalCost = subscriptionHistory.reduce((s, h) => s + (subscriptionHistoryCost(h) || 0), 0);
+  summaryEl.innerHTML = `<p>Has gastado aproximadamente <strong>${totalCost.toFixed(2)}€</strong> en suscripciones que ya has cancelado.</p>`;
+
+  listEl.innerHTML = subscriptionHistory.map((h) => {
+    const cost = subscriptionHistoryCost(h);
+    const days = Math.max(Math.round((new Date(h.endDate) - new Date(h.startDate)) / 86400000), 1);
+    return `
+      <div class="sub-history-item" data-id="${h.id}">
+        <div class="sub-history-platform">${escapeHtml(h.platform)}</div>
+        <div class="sub-history-dates">${formatShareListDate(h.startDate)} — ${formatShareListDate(h.endDate)} (${days} ${pluralize(days, 'día', 'días')})</div>
+        <div class="sub-history-cost">${cost != null ? `${cost.toFixed(2)}€` : 'sin precio'}</div>
+        <button type="button" class="icon-btn sub-history-delete-btn" data-id="${h.id}" title="Eliminar del historial"><svg class="icon"><use href="#icon-trash"></use></svg></button>
+      </div>
+    `;
+  }).join('');
+
+  listEl.querySelectorAll('.sub-history-delete-btn').forEach((btn) => {
+    btn.addEventListener('click', () => deleteSubscriptionHistoryEntry(btn.dataset.id));
+  });
+}
+
+async function deleteSubscriptionHistoryEntry(id) {
+  if (!confirm('¿Eliminar este registro del historial de gasto?')) return;
+  subscriptionHistory = await window.api.deleteSubscriptionHistory(id);
+  renderSubscriptionHistory();
 }
 
 const DAILY_PACE_CAP_MINUTES = 4 * 60;
@@ -3314,8 +3396,11 @@ function bindEvents() {
     if (cancelBtn) {
       const platform = cancelBtn.dataset.platform;
       if (!confirm(`¿Cancelar la suscripción de ${platform}?`)) return;
-      subscriptions = await window.api.upsertSubscription(platform, { active: false, startDate: null });
+      subscriptions = await window.api.cancelSubscription(platform);
+      subscriptionHistory = await window.api.listSubscriptionHistory();
+      invalidateRecommendations();
       renderSubscriptions();
+      renderSubscriptionHistory();
       updateSubPlannerResult();
       showToast(`${platform} cancelada`, 'error');
     }

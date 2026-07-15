@@ -38,10 +38,11 @@ Construida con [Electron](https://www.electronjs.org/) y JavaScript "vanilla" (s
 - Autocompletar título, año, género, duración, temporadas y póster al buscar.
 - Ver en qué plataformas de streaming está disponible cada título.
 - Ver el tráiler con un clic.
-- Recomendaciones automáticas en la pantalla de Resumen: mezclan títulos parecidos a lo que has
-  valorado con novedades en tendencia (para no quedarte siempre con "más de lo mismo"), con una
-  pequeña cuota de series entre las películas. El botón de recargar muestra selecciones distintas
-  cada vez, sin repetirse hasta agotar las opciones disponibles.
+- Recomendaciones automáticas en la pantalla de Resumen: si tienes alguna suscripción activa en el
+  apartado Suscripciones, se nutren primero de lo disponible en esa plataforma; si no, mezclan
+  títulos parecidos a lo que has valorado con novedades en tendencia (para no quedarte siempre con
+  "más de lo mismo"), con una pequeña cuota de series entre las películas. El botón de recargar
+  muestra selecciones distintas cada vez, sin repetirse hasta agotar las opciones disponibles.
 - Panel de "Próximos estrenos" con la fecha del próximo episodio de las series que sigues.
 
 **Recomendar a otras personas**
@@ -263,9 +264,8 @@ antes de pasar a la siguiente.
 **La cuadrícula de plataformas** muestra automáticamente todos tus servicios de streaming (no las
 entradas como "Cine" o "DVD/Blu-ray", que no son suscripciones) con su logo real. En cada una
 puedes guardar el precio aunque no la tengas activa, y activarla con un clic indicando la fecha de
-inicio y si el ciclo es mensual o anual — la app calcula sola los días que te quedan. Si ya tienes
-una plataforma activa y activas otra a la vez, te avisa antes de dejarte seguir, para que no pagues
-dos a la vez sin darte cuenta.
+inicio y si el ciclo es mensual o anual — la app calcula sola los días que te quedan. Puedes tener
+varias plataformas activas a la vez sin ningún aviso, por si de verdad las estás pagando todas.
 
 **El planificador** ("¿Qué plataforma me compensa contratar?") responde a la pregunta real: eliges
 una plataforma y te dice cuántos pendientes tienes ahí, cuántas semanas te llevaría verlo todo
@@ -273,6 +273,18 @@ según tu ritmo real de visionado, y cuánto te costaría. El ritmo se calcula a
 historial (con un tope diario para que un volcado masivo de películas antiguas en un mismo día no
 dispare el cálculo), y si la plataforma seleccionada ya está activa, el texto cambia solo para
 decirte si con los días que te quedan vas sobrado o si necesitas mantenerla activa un poco más.
+
+**Recomendaciones conectadas con tu suscripción activa**: mientras tengas una plataforma activa,
+tanto el Resumen como el apartado Recomendar priorizan títulos disponibles ahí (usando el catálogo
+real de TMDB para esa plataforma) en vez de recomendaciones genéricas — así aprovechas mejor el
+tiempo que la tienes contratada. Al abrir la configuración de una lista en Recomendar, la
+plataforma activa aparece ya marcada por ti.
+
+**Historial de gasto**: al cancelar una suscripción, queda un registro en el historial de gasto de
+ese apartado con la plataforma, las fechas de inicio y fin, y lo que te costó ese periodo (prorrateado
+según el precio y el ciclo que tenías guardados). Si un registro no te sirve — por ejemplo porque
+solo estabas probando cómo funciona la función — puedes borrarlo con un clic desde el propio
+historial.
 
 ---
 
@@ -284,8 +296,9 @@ copia en un perfil no afecta para nada a los demás.
 
 Cada copia incluye **todo lo de ese perfil**: tu lista de pendientes/vistas, la Papelera, los
 ajustes (idioma, región, preferencias de copia — no la clave de TMDB, que es global y no se toca),
-las suscripciones que llevas registradas, y las listas del apartado Recomendar junto con sus
-imágenes generadas. También el color y la foto de perfil, si le has puesto una.
+las suscripciones que llevas registradas junto con su historial de gasto, y las listas del apartado
+Recomendar junto con sus imágenes generadas. También el color y la foto de perfil, si le has puesto
+una.
 
 ### Automáticas
 
@@ -339,6 +352,7 @@ usuario tiene su propia subcarpeta:
         ├── settings.json     Idioma, región y preferencias de copia de seguridad de este perfil.
         ├── backups\          Copias de seguridad automáticas y manuales de este perfil.
         ├── subscriptions.json Las plataformas que has activado, con precio, fecha y ciclo.
+        ├── subscription-history.json Historial de gasto de suscripciones ya canceladas.
         ├── share-lists.json  Historial de listas generadas en el apartado Recomendar.
         ├── share-images\     Las imágenes PNG generadas para esas listas.
         └── avatar.*          Tu foto de perfil, si le has puesto una.

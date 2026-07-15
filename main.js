@@ -18,6 +18,7 @@ function deletedProfileDir(id) { return path.join(dataDir, 'deleted-profiles', i
 function shareListsFile(id) { return path.join(profileDir(id), 'share-lists.json'); }
 function shareImagesDir(id) { return path.join(profileDir(id), 'share-images'); }
 function subscriptionsFile(id) { return path.join(profileDir(id), 'subscriptions.json'); }
+function subscriptionHistoryFile(id) { return path.join(profileDir(id), 'subscription-history.json'); }
 
 const DELETED_PROFILE_RETENTION_DAYS = 30;
 
@@ -63,11 +64,12 @@ async function loadMergedSettings() {
 }
 
 async function buildFullBackupPayload(profileId) {
-  const [movies, trash, settings, subscriptions, shareListsRaw, profilesData] = await Promise.all([
+  const [movies, trash, settings, subscriptions, subscriptionHistory, shareListsRaw, profilesData] = await Promise.all([
     readJson(moviesFile(profileId), []),
     readJson(trashFile(profileId), []),
     readJson(profileSettingsFile(profileId), DEFAULT_PROFILE_SETTINGS),
     readJson(subscriptionsFile(profileId), []),
+    readJson(subscriptionHistoryFile(profileId), []),
     readJson(shareListsFile(profileId), []),
     readJson(profilesFile, { profiles: [] }),
   ]);
@@ -101,6 +103,7 @@ async function buildFullBackupPayload(profileId) {
     trash,
     settings,
     subscriptions,
+    subscriptionHistory,
     shareLists,
     profileAppearance: {
       color: profileRecord ? profileRecord.color : null,
@@ -111,7 +114,7 @@ async function buildFullBackupPayload(profileId) {
 }
 
 async function applyFullBackupPayload(profileId, payload) {
-  const counts = { movies: 0, trash: 0, subscriptions: 0, shareLists: 0 };
+  const counts = { movies: 0, trash: 0, subscriptions: 0, subscriptionHistory: 0, shareLists: 0 };
 
   if (Array.isArray(payload.movies)) {
     await writeJson(moviesFile(profileId), payload.movies);
@@ -134,6 +137,20 @@ async function applyFullBackupPayload(profileId, payload) {
       }));
     await writeJson(subscriptionsFile(profileId), cleanSubscriptions);
     counts.subscriptions = cleanSubscriptions.length;
+  }
+  if (Array.isArray(payload.subscriptionHistory)) {
+    const cleanHistory = payload.subscriptionHistory
+      .filter((h) => h && typeof h.platform === 'string' && typeof h.startDate === 'string' && typeof h.endDate === 'string')
+      .map((h) => ({
+        id: typeof h.id === 'string' ? h.id : crypto.randomUUID(),
+        platform: h.platform,
+        price: typeof h.price === 'number' && Number.isFinite(h.price) ? h.price : null,
+        cycleDays: Number.isFinite(h.cycleDays) && h.cycleDays > 0 ? h.cycleDays : 30,
+        startDate: h.startDate,
+        endDate: h.endDate,
+      }));
+    await writeJson(subscriptionHistoryFile(profileId), cleanHistory);
+    counts.subscriptionHistory = cleanHistory.length;
   }
 
   if (Array.isArray(payload.shareLists)) {
@@ -724,12 +741,49 @@ ipcMain.handle('tmdb:providerLogos', async () => {
     const movieJson = movieRes.ok ? await movieRes.json() : { results: [] };
     const tvJson = tvRes.ok ? await tvRes.json() : { results: [] };
     const logos = {};
+    const providerIds = {};
     [...(movieJson.results || []), ...(tvJson.results || [])].forEach((p) => {
       if (p.provider_name && p.logo_path && !logos[p.provider_name]) {
         logos[p.provider_name] = `https://image.tmdb.org/t/p/original${p.logo_path}`;
       }
+      if (p.provider_name && p.provider_id && !providerIds[p.provider_name]) {
+        providerIds[p.provider_name] = p.provider_id;
+      }
     });
-    return { logos };
+    return { logos, providerIds };
+  } catch (err) {
+    return { error: 'NETWORK_ERROR', message: err.message };
+  }
+});
+
+ipcMain.handle('tmdb:discoverByProviders', async (_event, providerIds, mediaTypes) => {
+  const settings = await loadMergedSettings();
+  const apiKey = settings.tmdbApiKey;
+  const language = settings.language || 'es-ES';
+  const region = settings.region || 'ES';
+  if (!apiKey || !Array.isArray(providerIds) || !providerIds.length) return { movies: [], tv: [] };
+  try {
+    const idsParam = providerIds.join('|');
+    const wantMovie = !mediaTypes || mediaTypes.includes('movie');
+    const wantTv = !mediaTypes || mediaTypes.includes('tv');
+    const [movieRes, tvRes] = await Promise.all([
+      wantMovie
+        ? fetch(`https://api.themoviedb.org/3/discover/movie?language=${language}&watch_region=${region}&with_watch_providers=${idsParam}&sort_by=popularity.desc`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        })
+        : null,
+      wantTv
+        ? fetch(`https://api.themoviedb.org/3/discover/tv?language=${language}&watch_region=${region}&with_watch_providers=${idsParam}&sort_by=popularity.desc`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        })
+        : null,
+    ]);
+    const movieJson = movieRes && movieRes.ok ? await movieRes.json() : { results: [] };
+    const tvJson = tvRes && tvRes.ok ? await tvRes.json() : { results: [] };
+    return {
+      movies: (movieJson.results || []).slice(0, 20).map(mapTmdbResult('movie')),
+      tv: (tvJson.results || []).slice(0, 20).map(mapTmdbResult('tv')),
+    };
   } catch (err) {
     return { error: 'NETWORK_ERROR', message: err.message };
   }
@@ -787,6 +841,40 @@ ipcMain.handle('subscriptions:upsert', async (_event, platform, updates) => {
   Object.assign(entry, updates);
   await writeJson(subscriptionsFile(currentProfileId), list);
   return list;
+});
+
+ipcMain.handle('subscriptions:cancel', async (_event, platform) => {
+  const list = await readJson(subscriptionsFile(currentProfileId), []);
+  const entry = list.find((s) => s.platform === platform);
+  if (entry && entry.active && entry.startDate) {
+    const history = await readJson(subscriptionHistoryFile(currentProfileId), []);
+    history.unshift({
+      id: crypto.randomUUID(),
+      platform: entry.platform,
+      price: entry.price,
+      cycleDays: entry.cycleDays || 30,
+      startDate: entry.startDate,
+      endDate: new Date().toISOString().slice(0, 10),
+    });
+    await writeJson(subscriptionHistoryFile(currentProfileId), history);
+  }
+  if (entry) {
+    entry.active = false;
+    entry.startDate = null;
+  }
+  await writeJson(subscriptionsFile(currentProfileId), list);
+  return list;
+});
+
+ipcMain.handle('subscriptions:historyList', async () => {
+  return readJson(subscriptionHistoryFile(currentProfileId), []);
+});
+
+ipcMain.handle('subscriptions:historyDelete', async (_event, id) => {
+  const history = await readJson(subscriptionHistoryFile(currentProfileId), []);
+  const filtered = history.filter((h) => h.id !== id);
+  await writeJson(subscriptionHistoryFile(currentProfileId), filtered);
+  return filtered;
 });
 
 ipcMain.handle('data:export', async () => {
