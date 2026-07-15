@@ -288,8 +288,10 @@
 
       <div class="chart-card" id="panel-sub-planner">
         <h2><svg class="icon"><use href="#icon-ticket"></use></svg> ¿Qué plataforma me compensa contratar?</h2>
-        <div class="share-field">
-          <label>Plataforma</label>
+        <p class="help">Comparativa de todas tus plataformas con pendientes, de la que más compensa a la que menos.</p>
+        <div id="sub-planner-ranking" class="sub-planner-ranking"></div>
+        <div class="share-field sub-planner-detail-field">
+          <label>Ver el detalle de</label>
           <select id="sub-planner-platform"></select>
         </div>
         <div id="sub-planner-result" class="sub-planner-result"></div>
@@ -300,6 +302,7 @@
       <div class="chart-card" id="panel-sub-history">
         <h2><svg class="icon"><use href="#icon-calendar"></use></svg> Historial de gasto</h2>
         <div id="sub-history-summary" class="sub-history-summary"></div>
+        <div id="sub-history-breakdown"></div>
         <div id="sub-history-list" class="sub-history-list"></div>
         <p id="sub-history-empty" class="chart-empty hidden">Todavía no has cancelado ninguna suscripción.</p>
       </div>

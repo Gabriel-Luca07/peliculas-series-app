@@ -267,15 +267,19 @@ antes de pasar a la siguiente.
 **La cuadrícula de plataformas** muestra automáticamente todos tus servicios de streaming (no las
 entradas como "Cine" o "DVD/Blu-ray", que no son suscripciones) con su logo real. En cada una
 puedes guardar el precio aunque no la tengas activa, y activarla con un clic indicando la fecha de
-inicio y si el ciclo es mensual o anual — la app calcula sola los días que te quedan. Puedes tener
-varias plataformas activas a la vez sin ningún aviso, por si de verdad las estás pagando todas.
+inicio y el ciclo (mensual, trimestral o anual) — la app calcula sola los días que te quedan. Puedes
+tener varias plataformas activas a la vez sin ningún aviso, por si de verdad las estás pagando todas.
 
-**El planificador** ("¿Qué plataforma me compensa contratar?") responde a la pregunta real: eliges
-una plataforma y te dice cuántos pendientes tienes ahí, cuántas semanas te llevaría verlo todo
-según tu ritmo real de visionado, y cuánto te costaría. El ritmo se calcula a partir de tu propio
-historial (con un tope diario para que un volcado masivo de películas antiguas en un mismo día no
-dispare el cálculo), y si la plataforma seleccionada ya está activa, el texto cambia solo para
-decirte si con los días que te quedan vas sobrado o si necesitas mantenerla activa un poco más.
+**El planificador** ("¿Qué plataforma me compensa contratar?") empieza con una **comparativa de
+todas tus plataformas** con pendientes, ordenadas de la que más compensa a la que menos (por coste
+estimado si le tienes puesto precio, o por semanas necesarias si no) — para verlas todas de un
+vistazo en vez de ir cambiando una por una. Al pulsar sobre cualquiera de la lista, o eligiéndola
+directamente en el desplegable de debajo, se abre el detalle completo: cuántos pendientes tienes
+ahí, cuántas semanas te llevaría verlo todo según tu ritmo real de visionado, y cuánto te costaría.
+El ritmo se calcula a partir de tu propio historial (con un tope diario para que un volcado masivo
+de películas antiguas en un mismo día no dispare el cálculo), y si la plataforma ya está activa, el
+texto cambia solo para decirte si con los días que te quedan vas sobrado o si necesitas mantenerla
+activa un poco más.
 
 **Recomendaciones conectadas con tu suscripción activa**: mientras tengas una plataforma activa,
 tanto el Resumen como el apartado Recomendar priorizan títulos disponibles ahí (usando el catálogo
@@ -283,11 +287,15 @@ real de TMDB para esa plataforma) en vez de recomendaciones genéricas — así 
 tiempo que la tienes contratada. Al abrir la configuración de una lista en Recomendar, la
 plataforma activa aparece ya marcada por ti.
 
-**Historial de gasto**: al cancelar una suscripción, queda un registro en el historial de gasto de
-ese apartado con la plataforma, las fechas de inicio y fin, y lo que te costó ese periodo (prorrateado
-según el precio y el ciclo que tenías guardados). Si un registro no te sirve — por ejemplo porque
-solo estabas probando cómo funciona la función — puedes borrarlo con un clic desde el propio
-historial.
+**Historial de gasto**: al pulsar "Cancelar" queda un registro al momento en el historial de gasto
+de ese apartado (no espera a que acabe el ciclo que ya tenías pagado) con la plataforma, las fechas
+de inicio y fin, y lo que te costó ese periodo, prorrateado entre el precio, el ciclo y los días
+reales que estuvo activa — ten en cuenta que si cancelas antes de que acabe el periodo que ya
+pagaste, el coste mostrado será menor que lo que realmente pagaste, ya que la mayoría de plataformas
+no devuelven la parte no usada. Con más de una plataforma en el historial aparece también un
+**desglose por plataforma** (cuántas veces la has tenido y cuánto te ha costado en total), además
+del total general. Si un registro no te sirve — por ejemplo porque solo estabas probando cómo
+funciona la función — puedes borrarlo con un clic desde el propio historial.
 
 ---
 

@@ -1734,6 +1734,12 @@ async function deleteShareListEntry(id) {
 
 /* ---------- Subscriptions ---------- */
 
+const CYCLE_OPTIONS = [
+  { value: 30, label: 'Mensual', unit: '/mes', name: 'mensual' },
+  { value: 90, label: 'Trimestral', unit: '/trimestre', name: 'trimestral' },
+  { value: 365, label: 'Anual', unit: '/año', name: 'anual' },
+];
+
 function subscriptionPlatforms() {
   return PLATFORMS.filter((p) => !NON_SUBSCRIPTION_PLATFORMS.has(p));
 }
@@ -1813,8 +1819,7 @@ function renderSubscriptions() {
         `}
         <div class="subscription-activate-row hidden" data-platform="${platformEsc}">
           <select class="subscription-cycle-select">
-            <option value="30"${sub.cycleDays === 365 ? '' : ' selected'}>Mensual</option>
-            <option value="365"${sub.cycleDays === 365 ? ' selected' : ''}>Anual</option>
+            ${CYCLE_OPTIONS.map((o) => `<option value="${o.value}"${(sub.cycleDays || 30) === o.value ? ' selected' : ''}>${o.label}</option>`).join('')}
           </select>
           <input type="date" class="subscription-date-input" value="${new Date().toISOString().slice(0, 10)}">
           <button type="button" class="btn primary subscription-confirm-btn" data-platform="${platformEsc}">Confirmar</button>
@@ -1825,27 +1830,49 @@ function renderSubscriptions() {
 }
 
 function cycleUnitLabel(cycleDays) {
-  return cycleDays === 365 ? '/año' : '/mes';
+  const opt = CYCLE_OPTIONS.find((o) => o.value === cycleDays);
+  return opt ? opt.unit : '/mes';
+}
+
+function daysBetween(dateA, dateB) {
+  return Math.max(Math.round((new Date(dateB) - new Date(dateA)) / 86400000), 1);
 }
 
 function subscriptionHistoryCost(entry) {
   if (entry.price == null) return null;
-  const start = new Date(entry.startDate);
-  const end = new Date(entry.endDate);
-  const days = Math.max(Math.round((end - start) / 86400000), 1);
+  const days = daysBetween(entry.startDate, entry.endDate);
   const cycleDays = entry.cycleDays || 30;
   return (entry.price / cycleDays) * days;
+}
+
+function renderSubHistoryBreakdown() {
+  const totals = {};
+  subscriptionHistory.forEach((h) => {
+    if (!totals[h.platform]) totals[h.platform] = { count: 0, cost: 0 };
+    totals[h.platform].count += 1;
+    totals[h.platform].cost += subscriptionHistoryCost(h) || 0;
+  });
+  return Object.entries(totals)
+    .sort((a, b) => b[1].cost - a[1].cost)
+    .map(([platform, t]) => `
+      <div class="sub-history-breakdown-item">
+        <span class="sub-history-breakdown-platform">${escapeHtml(platform)}</span>
+        <span class="sub-history-breakdown-meta">${t.count} ${pluralize(t.count, 'vez', 'veces')} · ${t.cost.toFixed(2)}€</span>
+      </div>
+    `).join('');
 }
 
 function renderSubscriptionHistory() {
   const listEl = $('#sub-history-list');
   const summaryEl = $('#sub-history-summary');
   const emptyEl = $('#sub-history-empty');
+  const breakdownEl = $('#sub-history-breakdown');
   if (!listEl || !summaryEl || !emptyEl) return;
 
   if (!subscriptionHistory.length) {
     listEl.innerHTML = '';
     summaryEl.innerHTML = '';
+    if (breakdownEl) breakdownEl.innerHTML = '';
     emptyEl.classList.remove('hidden');
     return;
   }
@@ -1854,9 +1881,16 @@ function renderSubscriptionHistory() {
   const totalCost = subscriptionHistory.reduce((s, h) => s + (subscriptionHistoryCost(h) || 0), 0);
   summaryEl.innerHTML = `<p>Has gastado aproximadamente <strong>${totalCost.toFixed(2)}€</strong> en suscripciones que ya has cancelado.</p>`;
 
+  if (breakdownEl) {
+    const distinctPlatforms = new Set(subscriptionHistory.map((h) => h.platform)).size;
+    breakdownEl.innerHTML = distinctPlatforms > 1
+      ? `<div class="sub-history-breakdown">${renderSubHistoryBreakdown()}</div>`
+      : '';
+  }
+
   listEl.innerHTML = subscriptionHistory.map((h) => {
     const cost = subscriptionHistoryCost(h);
-    const days = Math.max(Math.round((new Date(h.endDate) - new Date(h.startDate)) / 86400000), 1);
+    const days = daysBetween(h.startDate, h.endDate);
     return `
       <div class="sub-history-item" data-id="${h.id}">
         <div class="sub-history-platform">${escapeHtml(h.platform)}</div>
@@ -1918,7 +1952,69 @@ function fillSubPlannerPlatforms() {
   if (platforms.includes(previousValue)) select.value = previousValue;
 }
 
+function computeSubPlannerRow(platform) {
+  const sub = getSubscription(platform);
+  const pendingHere = getPending().filter((m) => m.platform === platform);
+  const withRuntime = pendingHere.filter((m) => m.runtime);
+  const totalMinutes = withRuntime.reduce((s, m) => s + m.runtime, 0);
+  if (!pendingHere.length || !totalMinutes) return null;
+
+  const platformPace = sub.active ? computePlatformPaceHours(platform, sub.startDate) : null;
+  const generalPace = computeWeeklyPaceHours();
+  const effectivePace = (platformPace && platformPace > 0.1) ? platformPace
+    : (generalPace && generalPace > 0.1) ? generalPace
+    : 3;
+
+  const weeksNeeded = Math.max(Math.ceil((totalMinutes / 60) / effectivePace), 1);
+  const daysNeeded = weeksNeeded * 7;
+  const cycleDays = sub.cycleDays || 30;
+  let estimatedCost = null;
+  if (sub.price != null) {
+    estimatedCost = cycleDays <= 31
+      ? Math.max(Math.ceil(daysNeeded / 30), 1) * sub.price
+      : (sub.price / cycleDays) * daysNeeded;
+  }
+  return { platform, pendingCount: pendingHere.length, weeksNeeded, estimatedCost, active: sub.active };
+}
+
+function renderSubPlannerRanking() {
+  const el = $('#sub-planner-ranking');
+  if (!el) return;
+  const rows = subscriptionPlatforms()
+    .map((p) => computeSubPlannerRow(p))
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a.estimatedCost != null && b.estimatedCost != null) return a.estimatedCost - b.estimatedCost;
+      if (a.estimatedCost != null) return -1;
+      if (b.estimatedCost != null) return 1;
+      return a.weeksNeeded - b.weeksNeeded;
+    });
+
+  if (!rows.length) {
+    el.innerHTML = '<p class="chart-empty">Añade duración a tus pendientes en alguna plataforma para poder comparar.</p>';
+    return;
+  }
+
+  el.innerHTML = rows.map((r) => `
+    <div class="sub-rank-item${r.active ? ' active' : ''}" data-platform="${escapeHtml(r.platform)}">
+      <div class="sub-rank-platform">${escapeHtml(r.platform)}${r.active ? ' <span class="sub-rank-badge">activa</span>' : ''}</div>
+      <div class="sub-rank-detail">${r.pendingCount} ${pluralize(r.pendingCount, 'pendiente', 'pendientes')} · ~${r.weeksNeeded} ${pluralize(r.weeksNeeded, 'semana', 'semanas')}</div>
+      <div class="sub-rank-cost">${r.estimatedCost != null ? `~${r.estimatedCost.toFixed(2)}€` : 'sin precio'}</div>
+    </div>
+  `).join('');
+
+  el.querySelectorAll('.sub-rank-item').forEach((item) => {
+    item.addEventListener('click', () => {
+      const select = $('#sub-planner-platform');
+      if (!select) return;
+      select.value = item.dataset.platform;
+      updateSubPlannerResult();
+    });
+  });
+}
+
 function updateSubPlannerResult() {
+  renderSubPlannerRanking();
   const select = $('#sub-planner-platform');
   const resultEl = $('#sub-planner-result');
   if (!select || !resultEl) return;
@@ -1989,7 +2085,8 @@ function updateSubPlannerResult() {
     commitmentText = `Eso son aproximadamente <strong>${monthsNeeded} ${pluralize(monthsNeeded, 'mes', 'meses')}</strong> de suscripción`;
     if (sub.price != null) costText = ` (~${(monthsNeeded * sub.price).toFixed(2)}€)`;
   } else {
-    const cycleName = cycleDays === 365 ? 'anual' : `cada ${cycleDays} días`;
+    const cycleOpt = CYCLE_OPTIONS.find((o) => o.value === cycleDays);
+    const cycleName = cycleOpt ? cycleOpt.name : `cada ${cycleDays} días`;
     commitmentText = `Como es una suscripción de ciclo largo (${cycleName}) que no se activa y cancela suelta, esas ~${weeksNeeded} ${pluralize(weeksNeeded, 'semana', 'semanas')} equivaldrían a una parte proporcional de lo que ya pagas`;
     if (sub.price != null) costText = ` (~${((sub.price / cycleDays) * daysNeeded).toFixed(2)}€)`;
   }

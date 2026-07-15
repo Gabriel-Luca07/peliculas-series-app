@@ -1813,6 +1813,29 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .sub-planner-result p { margin: 0 0 8px; font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
 .sub-planner-result strong { color: var(--text-primary); }
 
+.sub-planner-ranking { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 18px; }
+.sub-rank-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.sub-rank-item:hover { background: var(--bg-elev-3); transform: translateX(2px); }
+.sub-rank-item.active { border-color: var(--accent); }
+.sub-rank-platform { font-size: 13px; font-weight: 600; min-width: 120px; }
+.sub-rank-badge {
+  font-size: 10px; font-weight: 600; color: var(--accent);
+  border: 1px solid var(--accent); border-radius: 999px; padding: 1px 6px; margin-left: 4px;
+}
+.sub-rank-detail { font-size: 12px; color: var(--text-muted); flex: 1; }
+.sub-rank-cost { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.sub-planner-detail-field { margin-top: 4px; }
+
 .subscriptions-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
@@ -1889,6 +1912,16 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 #panel-sub-history { margin-top: 20px; }
 .sub-history-summary p { font-size: 13px; color: var(--text-secondary); margin: 0 0 14px; }
 .sub-history-summary strong { color: var(--accent); }
+.sub-history-breakdown {
+  display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px;
+}
+.sub-history-breakdown-item {
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 12px;
+}
+.sub-history-breakdown-platform { font-size: 12.5px; font-weight: 600; }
+.sub-history-breakdown-meta { font-size: 11.5px; color: var(--text-muted); }
 .sub-history-list { display: flex; flex-direction: column; gap: 8px; }
 .sub-history-item {
   display: flex;
