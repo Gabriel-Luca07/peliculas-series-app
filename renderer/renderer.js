@@ -122,6 +122,29 @@ async function init() {
   loadProviderLogos();
   window.api.getAppVersion().then((v) => { $('#app-version').textContent = `v${v}`; });
   updateProfileBadge();
+  initAutoUpdater();
+}
+
+/* ---------- Auto-actualización ---------- */
+
+function initAutoUpdater() {
+  window.api.onUpdaterStatus((status) => {
+    const statusEl = $('#update-status');
+    const restartBtn = $('#btn-restart-update');
+    if (status.state === 'available') {
+      if (statusEl) statusEl.textContent = `Descargando la versión ${status.version}...`;
+    } else if (status.state === 'downloaded') {
+      if (statusEl) statusEl.textContent = `Versión ${status.version} descargada y lista para instalar.`;
+      if (restartBtn) restartBtn.classList.remove('hidden');
+      showToast(`Nueva versión ${status.version} descargada`, 'success', {
+        actionLabel: 'Reiniciar ahora',
+        onAction: () => window.api.installUpdate(),
+        duration: 15000,
+      });
+    } else if (status.state === 'error') {
+      if (statusEl) statusEl.textContent = '';
+    }
+  });
 }
 
 /* ---------- Profiles ---------- */
@@ -1689,15 +1712,6 @@ async function loadProviderLogos() {
 }
 
 async function activateSubscription(platform, dateValue, cycleDays) {
-  const others = subscriptions.filter((s) => s.active && s.platform !== platform);
-  if (others.length) {
-    const other = others[0];
-    const rem = subscriptionDaysRemaining(other);
-    const remText = rem === 0 ? 'renueva hoy' : `${rem} día${rem === 1 ? '' : 's'} restantes`;
-    if (!confirm(`Ya tienes ${other.platform} activa (${remText}). Para no pagar dos a la vez, ¿seguro que quieres activar ${platform} también?`)) {
-      return false;
-    }
-  }
   const resolvedCycle = cycleDays || getSubscription(platform).cycleDays || 30;
   subscriptions = await window.api.upsertSubscription(platform, { active: true, startDate: dateValue, cycleDays: resolvedCycle });
   return true;
@@ -3216,6 +3230,23 @@ function bindEvents() {
   $('#btn-bulk-delete-vistas').addEventListener('click', () => applyBulkDelete('vistas'));
 
   $('#btn-empty-trash').addEventListener('click', emptyTrash);
+
+  $('#btn-check-updates').addEventListener('click', async () => {
+    const statusEl = $('#update-status');
+    statusEl.textContent = 'Buscando actualizaciones...';
+    const res = await window.api.checkForUpdates();
+    if (res.error === 'DEV_MODE') {
+      statusEl.textContent = 'La búsqueda de actualizaciones solo funciona en la versión instalada.';
+    } else if (res.error) {
+      statusEl.textContent = 'No se pudo comprobar si hay actualizaciones (revisa tu conexión).';
+    } else if (res.version) {
+      statusEl.textContent = `Hay una versión nueva (${res.version}); descargándola en segundo plano...`;
+    } else {
+      statusEl.textContent = 'Ya tienes la última versión.';
+    }
+  });
+
+  $('#btn-restart-update').addEventListener('click', () => window.api.installUpdate());
 
   $('#btn-new-share-list').addEventListener('click', openShareConfigModal);
   $('#share-config-close').addEventListener('click', closeShareConfigModal);

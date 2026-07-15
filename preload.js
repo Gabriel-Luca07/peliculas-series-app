@@ -38,4 +38,11 @@ contextBridge.exposeInMainWorld('api', {
   openBackupsFolder: () => ipcRenderer.invoke('app:openBackupsFolder'),
   runBackupNow: () => ipcRenderer.invoke('app:runBackupNow'),
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
+  checkForUpdates: () => ipcRenderer.invoke('updater:check'),
+  installUpdate: () => ipcRenderer.invoke('updater:install'),
+  onUpdaterStatus: (callback) => {
+    const handler = (_event, status) => callback(status);
+    ipcRenderer.on('updater:status', handler);
+    return () => ipcRenderer.removeListener('updater:status', handler);
+  },
 });

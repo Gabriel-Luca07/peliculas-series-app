@@ -144,7 +144,20 @@ En esa misma Release también encontrarás una versión **portable**
 Tus películas, series, perfiles, valoraciones y copias de seguridad **no viven dentro de la
 carpeta donde se instala la app**, sino en tu carpeta de usuario de Windows (ver
 [Dónde se guardan tus datos](#dónde-se-guardan-tus-datos)). Instalar una versión nueva **no toca
-esa carpeta para nada**, así que actualizar es seguro:
+esa carpeta para nada**, así que actualizar es seguro sea cual sea el método.
+
+### Automática (si instalaste la app con el instalador)
+
+La app comprueba sola si hay una versión nueva cada vez que la abres y, si la hay, la descarga en
+segundo plano sin molestarte. Cuando termina de descargarla te avisa con un aviso y un botón
+"Reiniciar ahora" (también disponible en Ajustes → Acerca de → "Reiniciar e instalar"): al pulsarlo,
+la app se cierra, se actualiza y se vuelve a abrir sola con la versión nueva. También puedes forzar
+la comprobación en cualquier momento con el botón "Buscar actualizaciones" en Ajustes.
+
+Esto **solo funciona con la versión instalada** (no con la portable) porque necesita el
+desinstalador que crea el propio instalador para reemplazar los archivos.
+
+### Manual
 
 1. Ve a la [**última Release**](https://github.com/Gabriel-Luca07/peliculas-series-app/releases/latest)
    y descarga el instalador nuevo (`Peliculas y Series Setup X.X.X.exe`).
@@ -154,9 +167,9 @@ esa carpeta para nada**, así que actualizar es seguro:
 3. Abre la app: tus perfiles, tu lista de pendientes/vistas y tus copias de seguridad siguen
    exactamente donde estaban.
 
-Si usas la versión **portable** en vez de instalarla, simplemente sustituye el `.exe` antiguo por
-el nuevo (o guarda el nuevo en otra carpeta y bórralo cuando compruebes que todo va bien) — como el
-`.exe` portable no guarda nada dentro de sí mismo, tampoco hay riesgo de perder datos.
+Si usas la versión **portable**, esta es la única forma de actualizar: sustituye el `.exe` antiguo
+por el nuevo (o guarda el nuevo en otra carpeta y bórralo cuando compruebes que todo va bien) — como
+el `.exe` portable no guarda nada dentro de sí mismo, tampoco hay riesgo de perder datos.
 
 > **No hace falta** exportar ni hacer copia de seguridad manual antes de actualizar solo por el
 > hecho de actualizar. Aun así, si quieres ir sobre seguro (por ejemplo, en el ordenador donde
@@ -164,7 +177,8 @@ el nuevo (o guarda el nuevo en otra carpeta y bórralo cuando compruebes que tod
 > instalar la versión nueva.
 
 **¿Cómo sé si tengo la última versión?** Ajustes muestra el número de versión instalada
-(abajo del todo) — compáralo con el de la última Release en GitHub.
+(abajo del todo) — compáralo con el de la última Release en GitHub, o simplemente pulsa "Buscar
+actualizaciones".
 
 ---
 
@@ -198,6 +212,10 @@ Esto usa [electron-builder](https://www.electron.build/) para generar, dentro de
 Ambos quedan firmados con el icono de `build/icon.ico`. Como es una app de uso personal sin
 certificado de firma de código, Windows SmartScreen puede mostrar un aviso la primera vez que se
 ejecuta el instalador en un ordenador nuevo; es esperable y no indica ningún problema.
+
+`npm run dist` también genera `release/latest.yml` (y un `.blockmap` junto al instalador). Si vas a
+publicar la Release en GitHub, **súbelos también** como assets además de los dos `.exe` — sin
+`latest.yml` la actualización automática no encuentra la versión nueva.
 
 ---
 

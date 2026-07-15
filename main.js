@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
 const crypto = require('crypto');
+const { autoUpdater } = require('electron-updater');
 
 const dataDir = app.getPath('userData');
 const profilesFile = path.join(dataDir, 'profiles.json');
@@ -260,6 +261,8 @@ async function migrateLegacyDataIfNeeded() {
   await fs.rename(legacySettingsFile, `${legacySettingsFile}.bak`).catch(() => {});
 }
 
+let mainWindow = null;
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
@@ -275,12 +278,28 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
+  mainWindow = win;
   win.once('ready-to-show', () => {
     win.show();
     win.focus();
   });
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
+  });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
+
+function sendUpdaterStatus(status) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('updater:status', status);
+  }
+}
+
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
+autoUpdater.on('update-available', (info) => sendUpdaterStatus({ state: 'available', version: info.version }));
+autoUpdater.on('update-downloaded', (info) => sendUpdaterStatus({ state: 'downloaded', version: info.version }));
+autoUpdater.on('error', (err) => sendUpdaterStatus({ state: 'error', message: err.message }));
 
 app.whenReady().then(async () => {
   await migrateLegacyDataIfNeeded();
@@ -289,6 +308,9 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+  if (app.isPackaged) {
+    autoUpdater.checkForUpdates().catch(() => {});
+  }
 });
 
 app.on('window-all-closed', () => {
@@ -848,3 +870,18 @@ ipcMain.handle('app:runBackupNow', async () => {
 });
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
+
+ipcMain.handle('updater:check', async () => {
+  if (!app.isPackaged) return { error: 'DEV_MODE' };
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    const hasUpdate = !!(result && result.isUpdateAvailable);
+    return { ok: true, version: hasUpdate ? result.updateInfo.version : null };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('updater:install', () => {
+  autoUpdater.quitAndInstall();
+});
