@@ -545,6 +545,7 @@
           <h2>Acerca de</h2>
           <p class="help">Películas y Series <span id="app-version"></span></p>
           <button type="button" id="btn-check-updates" class="btn">Buscar actualizaciones</button>
+          <button type="button" id="btn-view-update-notes" class="btn hidden">Ver novedades</button>
           <button type="button" id="btn-restart-update" class="btn primary hidden">Reiniciar e instalar</button>
           <p id="update-status" class="status"></p>
           <label>Atajos de teclado</label>
@@ -718,6 +719,18 @@
         <select id="wrapped-year"></select>
       </div>
       <div id="wrapped-content" class="wrapped-content"></div>
+    </div>
+  </div>
+
+  <div id="update-notes-overlay" class="overlay hidden">
+    <div class="modal update-notes-modal">
+      <button class="icon-btn close-btn" id="update-notes-close"><svg class="icon"><use href="#icon-x"></use></svg></button>
+      <h2>Novedades de la versión <span id="update-notes-version"></span></h2>
+      <div id="update-notes-body" class="update-notes-body"></div>
+      <div class="update-notes-actions">
+        <button type="button" id="update-notes-later" class="btn">Más tarde</button>
+        <button type="button" id="update-notes-install" class="btn primary">Reiniciar ahora</button>
+      </div>
     </div>
   </div>
 

@@ -150,10 +150,13 @@ esa carpeta para nada**, así que actualizar es seguro sea cual sea el método.
 ### Automática (si instalaste la app con el instalador)
 
 La app comprueba sola si hay una versión nueva cada vez que la abres y, si la hay, la descarga en
-segundo plano sin molestarte. Cuando termina de descargarla te avisa con un aviso y un botón
-"Reiniciar ahora" (también disponible en Ajustes → Acerca de → "Reiniciar e instalar"): al pulsarlo,
-la app se cierra, se actualiza y se vuelve a abrir sola con la versión nueva. También puedes forzar
-la comprobación en cualquier momento con el botón "Buscar actualizaciones" en Ajustes.
+segundo plano sin molestarte. Cuando termina de descargarla te avisa con un aviso que incluye un
+botón **"Ver novedades"**: abre una ventana con las notas de esa Release de GitHub (qué ha cambiado)
+antes de que decidas reiniciar. Desde ahí mismo, o con el botón "Reiniciar ahora" (también
+disponible en Ajustes → Acerca de → "Reiniciar e instalar"), la app se cierra, se actualiza y se
+vuelve a abrir sola con la versión nueva. También puedes forzar la comprobación en cualquier momento
+con el botón "Buscar actualizaciones" en Ajustes, que muestra igualmente "Ver novedades" si
+encuentra una versión nueva.
 
 Esto **solo funciona con la versión instalada** (no con la portable) porque necesita el
 desinstalador que crea el propio instalador para reemplazar los archivos.

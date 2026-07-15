@@ -312,10 +312,31 @@ function sendUpdaterStatus(status) {
   }
 }
 
+function normalizeReleaseNotes(notes) {
+  if (!notes) return null;
+  if (typeof notes === 'string') return notes;
+  if (Array.isArray(notes)) {
+    const joined = notes
+      .map((n) => (n && n.version ? `${n.version}\n${n.note || ''}` : (n && n.note) || ''))
+      .filter(Boolean)
+      .join('\n\n');
+    return joined || null;
+  }
+  return null;
+}
+
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
-autoUpdater.on('update-available', (info) => sendUpdaterStatus({ state: 'available', version: info.version }));
-autoUpdater.on('update-downloaded', (info) => sendUpdaterStatus({ state: 'downloaded', version: info.version }));
+autoUpdater.on('update-available', (info) => sendUpdaterStatus({
+  state: 'available',
+  version: info.version,
+  releaseNotes: normalizeReleaseNotes(info.releaseNotes),
+}));
+autoUpdater.on('update-downloaded', (info) => sendUpdaterStatus({
+  state: 'downloaded',
+  version: info.version,
+  releaseNotes: normalizeReleaseNotes(info.releaseNotes),
+}));
 autoUpdater.on('error', (err) => sendUpdaterStatus({ state: 'error', message: err.message }));
 
 app.whenReady().then(async () => {
@@ -964,7 +985,11 @@ ipcMain.handle('updater:check', async () => {
   try {
     const result = await autoUpdater.checkForUpdates();
     const hasUpdate = !!(result && result.isUpdateAvailable);
-    return { ok: true, version: hasUpdate ? result.updateInfo.version : null };
+    return {
+      ok: true,
+      version: hasUpdate ? result.updateInfo.version : null,
+      releaseNotes: hasUpdate ? normalizeReleaseNotes(result.updateInfo.releaseNotes) : null,
+    };
   } catch (err) {
     return { error: err.message };
   }
