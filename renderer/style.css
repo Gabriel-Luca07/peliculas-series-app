@@ -1891,6 +1891,10 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 }
 .subscription-status { font-size: 11.5px; color: var(--text-muted); }
 .subscription-status.active { color: var(--accent); font-weight: 600; }
+.subscription-status.cancelled { color: #ca8a04; font-weight: 600; }
+.subscription-card.cancelled { border-color: #ca8a04; }
+.subscription-renew-btn { border-color: #ca8a04; color: #ca8a04; }
+.subscription-renew-btn:hover { background: rgba(202,138,4,0.12); }
 .subscription-card .btn { font-size: 12px; padding: 6px 14px; width: 100%; }
 .subscription-activate-row {
   display: flex;
@@ -1932,8 +1936,15 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
   border-radius: 8px;
   padding: 10px 12px;
 }
-.sub-history-platform { font-size: 13px; font-weight: 600; min-width: 110px; }
+.sub-history-platform { font-size: 13px; font-weight: 600; min-width: 110px; display: flex; align-items: center; gap: 6px; }
 .sub-history-dates { font-size: 12px; color: var(--text-muted); flex: 1; }
+.sub-history-badge {
+  font-size: 10px; font-weight: 600; border-radius: 999px; padding: 1px 7px;
+  white-space: nowrap;
+}
+.sub-history-badge.ongoing { color: var(--accent); border: 1px solid var(--accent); }
+.sub-history-badge.cancelled-active { color: #ca8a04; border: 1px solid #ca8a04; }
+.sub-history-badge.finished { color: var(--text-muted); border: 1px solid var(--border); }
 .sub-history-cost { font-size: 13px; font-weight: 600; color: var(--text-primary); }
 .sub-history-delete-btn { flex-shrink: 0; color: var(--text-muted); }
 .sub-history-delete-btn:hover { color: var(--danger); }

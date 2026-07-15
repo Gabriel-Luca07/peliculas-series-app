@@ -1746,7 +1746,7 @@ function subscriptionPlatforms() {
 
 function getSubscription(platform) {
   return subscriptions.find((s) => s.platform === platform)
-    || { platform, price: null, active: false, startDate: null, cycleDays: 30 };
+    || { platform, price: null, active: false, startDate: null, cycleDays: 30, willRenew: true, historyId: null };
 }
 
 function subscriptionDaysRemaining(sub) {
@@ -1786,7 +1786,9 @@ function invalidateRecommendations() {
 
 async function activateSubscription(platform, dateValue, cycleDays) {
   const resolvedCycle = cycleDays || getSubscription(platform).cycleDays || 30;
-  subscriptions = await window.api.upsertSubscription(platform, { active: true, startDate: dateValue, cycleDays: resolvedCycle });
+  const res = await window.api.activateSubscription(platform, dateValue, resolvedCycle);
+  subscriptions = res.subscriptions;
+  subscriptionHistory = res.history;
   invalidateRecommendations();
   return true;
 }
@@ -1801,8 +1803,26 @@ function renderSubscriptions() {
     const badgeColor = SERIES_COLORS[i % SERIES_COLORS.length];
     const cycleLabel = cycleUnitLabel(sub.cycleDays);
     const platformEsc = escapeHtml(platform);
+    // A cancelled subscription keeps active=true until its paid cycle actually
+    // ends: cancelling only stops the next renewal, it doesn't cut off access
+    // you already paid for.
+    const cancelled = sub.active && sub.willRenew === false;
+
+    let statusHtml;
+    let actionHtml;
+    if (sub.active && !cancelled) {
+      statusHtml = `<div class="subscription-status active">Activa · ${remaining === 0 ? 'renueva hoy' : `${remaining} ${pluralize(remaining, 'día', 'días')} restantes`}</div>`;
+      actionHtml = `<button type="button" class="btn subscription-cancel-btn" data-platform="${platformEsc}">Cancelar</button>`;
+    } else if (cancelled) {
+      statusHtml = `<div class="subscription-status cancelled">Cancelada · te quedan ${remaining} ${pluralize(remaining, 'día', 'días')} de acceso</div>`;
+      actionHtml = `<button type="button" class="btn subscription-renew-btn" data-platform="${platformEsc}">Reactivar renovación</button>`;
+    } else {
+      statusHtml = `<div class="subscription-status">Sin activar</div>`;
+      actionHtml = `<button type="button" class="btn primary subscription-activate-btn" data-platform="${platformEsc}">Activar</button>`;
+    }
+
     return `
-      <div class="subscription-card${sub.active ? ' active' : ''}" data-platform="${platformEsc}">
+      <div class="subscription-card${sub.active ? ' active' : ''}${cancelled ? ' cancelled' : ''}" data-platform="${platformEsc}">
         <div class="subscription-logo"${logo ? '' : ` style="background:${badgeColor}"`}>${logo ? `<img src="${logo}" alt="${platformEsc}">` : `<span class="subscription-logo-fallback">${escapeHtml(platform.charAt(0))}</span>`}</div>
         <div class="subscription-name">${platformEsc}</div>
         <label class="subscription-price-row">
@@ -1810,13 +1830,8 @@ function renderSubscriptions() {
           <input type="text" inputmode="decimal" class="subscription-price-input" data-platform="${platformEsc}" value="${sub.price != null ? sub.price : ''}" placeholder="0.00">
           <span>${cycleLabel}</span>
         </label>
-        ${sub.active ? `
-          <div class="subscription-status active">Activa · ${remaining === 0 ? 'renueva hoy' : `${remaining} ${pluralize(remaining, 'día', 'días')} restantes`}</div>
-          <button type="button" class="btn subscription-cancel-btn" data-platform="${platformEsc}">Cancelar</button>
-        ` : `
-          <div class="subscription-status">Sin activar</div>
-          <button type="button" class="btn primary subscription-activate-btn" data-platform="${platformEsc}">Activar</button>
-        `}
+        ${statusHtml}
+        ${actionHtml}
         <div class="subscription-activate-row hidden" data-platform="${platformEsc}">
           <select class="subscription-cycle-select">
             ${CYCLE_OPTIONS.map((o) => `<option value="${o.value}"${(sub.cycleDays || 30) === o.value ? ' selected' : ''}>${o.label}</option>`).join('')}
@@ -1834,15 +1849,24 @@ function cycleUnitLabel(cycleDays) {
   return opt ? opt.unit : '/mes';
 }
 
-function daysBetween(dateA, dateB) {
-  return Math.max(Math.round((new Date(dateB) - new Date(dateA)) / 86400000), 1);
+function addDaysToDateString(dateStr, days) {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
+// Each history entry represents one full billing period you paid for, so its
+// cost is simply the price you had saved — no proration by elapsed days, since
+// real subscriptions charge the full period regardless of when you cancel it.
 function subscriptionHistoryCost(entry) {
-  if (entry.price == null) return null;
-  const days = daysBetween(entry.startDate, entry.endDate);
-  const cycleDays = entry.cycleDays || 30;
-  return (entry.price / cycleDays) * days;
+  return entry.price;
+}
+
+function subscriptionHistoryEntryStatus(entry) {
+  const isOngoing = subscriptions.some((s) => s.historyId === entry.id && s.active);
+  const plannedEnd = addDaysToDateString(entry.startDate, entry.cycleDays || 30);
+  if (!isOngoing) return { kind: 'finished', plannedEnd };
+  return entry.cancelledAt ? { kind: 'cancelled-active', plannedEnd } : { kind: 'active', plannedEnd };
 }
 
 function renderSubHistoryBreakdown() {
@@ -1879,7 +1903,7 @@ function renderSubscriptionHistory() {
   emptyEl.classList.add('hidden');
 
   const totalCost = subscriptionHistory.reduce((s, h) => s + (subscriptionHistoryCost(h) || 0), 0);
-  summaryEl.innerHTML = `<p>Has gastado aproximadamente <strong>${totalCost.toFixed(2)}€</strong> en suscripciones que ya has cancelado.</p>`;
+  summaryEl.innerHTML = `<p>Entre todas las veces que has activado una suscripción (sigan activas o ya canceladas), suman aproximadamente <strong>${totalCost.toFixed(2)}€</strong>.</p>`;
 
   if (breakdownEl) {
     const distinctPlatforms = new Set(subscriptionHistory.map((h) => h.platform)).size;
@@ -1890,11 +1914,23 @@ function renderSubscriptionHistory() {
 
   listEl.innerHTML = subscriptionHistory.map((h) => {
     const cost = subscriptionHistoryCost(h);
-    const days = daysBetween(h.startDate, h.endDate);
+    const status = subscriptionHistoryEntryStatus(h);
+    let dateLabel;
+    let badge = '';
+    if (status.kind === 'active') {
+      dateLabel = `Activa desde ${formatShareListDate(h.startDate)} · renueva el ${formatShareListDate(status.plannedEnd)} si no la cancelas`;
+      badge = '<span class="sub-history-badge ongoing">en curso</span>';
+    } else if (status.kind === 'cancelled-active') {
+      dateLabel = `Cancelada el ${formatShareListDate(h.cancelledAt)} · tienes acceso hasta el ${formatShareListDate(status.plannedEnd)}`;
+      badge = '<span class="sub-history-badge cancelled-active">cancelada, con acceso</span>';
+    } else {
+      dateLabel = `${formatShareListDate(h.startDate)} — ${formatShareListDate(status.plannedEnd)}`;
+      badge = h.cancelledAt ? '<span class="sub-history-badge finished">no se renovó</span>' : '';
+    }
     return `
       <div class="sub-history-item" data-id="${h.id}">
-        <div class="sub-history-platform">${escapeHtml(h.platform)}</div>
-        <div class="sub-history-dates">${formatShareListDate(h.startDate)} — ${formatShareListDate(h.endDate)} (${days} ${pluralize(days, 'día', 'días')})</div>
+        <div class="sub-history-platform">${escapeHtml(h.platform)}${badge}</div>
+        <div class="sub-history-dates">${dateLabel}</div>
         <div class="sub-history-cost">${cost != null ? `${cost.toFixed(2)}€` : 'sin precio'}</div>
         <button type="button" class="icon-btn sub-history-delete-btn" data-id="${h.id}" title="Eliminar del historial"><svg class="icon"><use href="#icon-trash"></use></svg></button>
       </div>
@@ -1907,9 +1943,13 @@ function renderSubscriptionHistory() {
 }
 
 async function deleteSubscriptionHistoryEntry(id) {
-  if (!confirm('¿Eliminar este registro del historial de gasto?')) return;
-  subscriptionHistory = await window.api.deleteSubscriptionHistory(id);
+  if (!confirm('¿Eliminar este registro del historial de gasto? Si sigue en curso, la suscripción quedará sin activar.')) return;
+  const res = await window.api.deleteSubscriptionHistory(id);
+  subscriptions = res.subscriptions;
+  subscriptionHistory = res.history;
+  renderSubscriptions();
   renderSubscriptionHistory();
+  updateSubPlannerResult();
 }
 
 const DAILY_PACE_CAP_MINUTES = 4 * 60;
@@ -3515,6 +3555,7 @@ function bindEvents() {
   $('#subscriptions-grid').addEventListener('click', async (e) => {
     const activateBtn = e.target.closest('.subscription-activate-btn');
     const cancelBtn = e.target.closest('.subscription-cancel-btn');
+    const renewBtn = e.target.closest('.subscription-renew-btn');
     const confirmBtn = e.target.closest('.subscription-confirm-btn');
 
     if (activateBtn) {
@@ -3532,6 +3573,7 @@ function bindEvents() {
       const ok = await activateSubscription(platform, dateVal, cycleVal);
       if (ok) {
         renderSubscriptions();
+        renderSubscriptionHistory();
         updateSubPlannerResult();
         showToast(`${platform} activada`);
       }
@@ -3539,14 +3581,25 @@ function bindEvents() {
     }
     if (cancelBtn) {
       const platform = cancelBtn.dataset.platform;
-      if (!confirm(`¿Cancelar la suscripción de ${platform}?`)) return;
-      subscriptions = await window.api.cancelSubscription(platform);
-      subscriptionHistory = await window.api.listSubscriptionHistory();
-      invalidateRecommendations();
+      if (!confirm(`¿Cancelar la renovación de ${platform}? Seguirás teniendo acceso hasta que termine el ciclo que ya has pagado.`)) return;
+      const res = await window.api.cancelSubscription(platform);
+      subscriptions = res.subscriptions;
+      subscriptionHistory = res.history;
       renderSubscriptions();
       renderSubscriptionHistory();
       updateSubPlannerResult();
-      showToast(`${platform} cancelada`, 'error');
+      showToast(`${platform}: no se renovará, pero conservas el acceso que ya pagaste`, 'error');
+      return;
+    }
+    if (renewBtn) {
+      const platform = renewBtn.dataset.platform;
+      const res = await window.api.renewSubscription(platform);
+      subscriptions = res.subscriptions;
+      subscriptionHistory = res.history;
+      renderSubscriptions();
+      renderSubscriptionHistory();
+      updateSubPlannerResult();
+      showToast(`${platform} volverá a renovarse`);
     }
   });
 
@@ -3583,6 +3636,7 @@ function bindEvents() {
     const ok = await activateSubscription(platform, today);
     if (ok) {
       renderSubscriptions();
+      renderSubscriptionHistory();
       updateSubPlannerResult();
       showToast(`${platform} activada`);
     }

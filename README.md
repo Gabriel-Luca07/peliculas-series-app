@@ -270,6 +270,14 @@ puedes guardar el precio aunque no la tengas activa, y activarla con un clic ind
 inicio y el ciclo (mensual, trimestral o anual) — la app calcula sola los días que te quedan. Puedes
 tener varias plataformas activas a la vez sin ningún aviso, por si de verdad las estás pagando todas.
 
+**Cancelar no te quita el acceso al momento**: igual que en la vida real, "Cancelar" solo significa
+que no se va a renovar — sigues viendo el contador de días y contando como activa (para el
+planificador, las recomendaciones, etc.) hasta que termina de verdad el ciclo que ya pagaste. La
+tarjeta pasa a mostrar "Cancelada · te quedan N días de acceso" con un botón **"Reactivar
+renovación"** por si pulsaste Cancelar por error o cambias de idea. Cuando el ciclo se acaba de
+verdad, la plataforma vuelve sola a "Sin activar" — no hay renovación automática, tienes que
+activarla otra vez a mano cuando quieras volver a pagarla.
+
 **El planificador** ("¿Qué plataforma me compensa contratar?") empieza con una **comparativa de
 todas tus plataformas** con pendientes, ordenadas de la que más compensa a la que menos (por coste
 estimado si le tienes puesto precio, o por semanas necesarias si no) — para verlas todas de un
@@ -287,15 +295,17 @@ real de TMDB para esa plataforma) en vez de recomendaciones genéricas — así 
 tiempo que la tienes contratada. Al abrir la configuración de una lista en Recomendar, la
 plataforma activa aparece ya marcada por ti.
 
-**Historial de gasto**: al pulsar "Cancelar" queda un registro al momento en el historial de gasto
-de ese apartado (no espera a que acabe el ciclo que ya tenías pagado) con la plataforma, las fechas
-de inicio y fin, y lo que te costó ese periodo, prorrateado entre el precio, el ciclo y los días
-reales que estuvo activa — ten en cuenta que si cancelas antes de que acabe el periodo que ya
-pagaste, el coste mostrado será menor que lo que realmente pagaste, ya que la mayoría de plataformas
-no devuelven la parte no usada. Con más de una plataforma en el historial aparece también un
-**desglose por plataforma** (cuántas veces la has tenido y cuánto te ha costado en total), además
-del total general. Si un registro no te sirve — por ejemplo porque solo estabas probando cómo
-funciona la función — puedes borrarlo con un clic desde el propio historial.
+**Historial de gasto**: queda un registro **desde el instante en que activas** una plataforma, no
+solo cuando la cancelas — así ves ahí mismo tanto lo que sigues pagando ahora como lo que ya
+canceladas en el pasado. Cada entrada muestra el coste completo de ese periodo tal cual lo tenías
+guardado (el precio de una suscripción no se prorratea por días: si pagas, pagas el periodo entero,
+lo canceles cuando lo canceles). Verás un aviso "en curso" mientras sigue activa, "cancelada, con
+acceso" si ya pulsaste Cancelar pero te quedan días, o simplemente las fechas de inicio y fin una
+vez termina de verdad. Con más de una plataforma en el historial aparece también un **desglose por
+plataforma** (cuántas veces la has tenido y cuánto suma en total), además del total general. Si un
+registro no te sirve — por ejemplo porque solo estabas probando cómo funciona la función — puedes
+borrarlo con un clic desde el propio historial; si borras uno que sigue en curso, esa plataforma
+vuelve a quedar sin activar.
 
 ---
 

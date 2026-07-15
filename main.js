@@ -134,20 +134,22 @@ async function applyFullBackupPayload(profileId, payload) {
         active: !!s.active && typeof s.startDate === 'string' && !!s.startDate,
         startDate: typeof s.startDate === 'string' ? s.startDate : null,
         cycleDays: Number.isFinite(s.cycleDays) && s.cycleDays > 0 ? s.cycleDays : 30,
+        willRenew: s.willRenew !== false,
+        historyId: typeof s.historyId === 'string' ? s.historyId : null,
       }));
     await writeJson(subscriptionsFile(profileId), cleanSubscriptions);
     counts.subscriptions = cleanSubscriptions.length;
   }
   if (Array.isArray(payload.subscriptionHistory)) {
     const cleanHistory = payload.subscriptionHistory
-      .filter((h) => h && typeof h.platform === 'string' && typeof h.startDate === 'string' && typeof h.endDate === 'string')
+      .filter((h) => h && typeof h.platform === 'string' && typeof h.startDate === 'string')
       .map((h) => ({
         id: typeof h.id === 'string' ? h.id : crypto.randomUUID(),
         platform: h.platform,
         price: typeof h.price === 'number' && Number.isFinite(h.price) ? h.price : null,
         cycleDays: Number.isFinite(h.cycleDays) && h.cycleDays > 0 ? h.cycleDays : 30,
         startDate: h.startDate,
-        endDate: h.endDate,
+        cancelledAt: typeof h.cancelledAt === 'string' ? h.cancelledAt : null,
       }));
     await writeJson(subscriptionHistoryFile(profileId), cleanHistory);
     counts.subscriptionHistory = cleanHistory.length;
@@ -848,15 +850,35 @@ ipcMain.handle('shareLists:openImage', async (_event, id) => {
   return { ok: true };
 });
 
+function daysElapsedSince(dateStr) {
+  return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
+}
+
+function defaultSubscriptionEntry(platform) {
+  return { platform, price: null, active: false, startDate: null, cycleDays: 30, willRenew: true, historyId: null };
+}
+
 ipcMain.handle('subscriptions:list', async () => {
-  return readJson(subscriptionsFile(currentProfileId), []);
+  const list = await readJson(subscriptionsFile(currentProfileId), []);
+  let dirty = false;
+  list.forEach((s) => {
+    if (s.active && s.startDate && daysElapsedSince(s.startDate) >= (s.cycleDays || 30)) {
+      s.active = false;
+      s.startDate = null;
+      s.willRenew = true;
+      s.historyId = null;
+      dirty = true;
+    }
+  });
+  if (dirty) await writeJson(subscriptionsFile(currentProfileId), list);
+  return list;
 });
 
 ipcMain.handle('subscriptions:upsert', async (_event, platform, updates) => {
   const list = await readJson(subscriptionsFile(currentProfileId), []);
   let entry = list.find((s) => s.platform === platform);
   if (!entry) {
-    entry = { platform, price: null, active: false, startDate: null, cycleDays: 30 };
+    entry = defaultSubscriptionEntry(platform);
     list.push(entry);
   }
   Object.assign(entry, updates);
@@ -864,27 +886,73 @@ ipcMain.handle('subscriptions:upsert', async (_event, platform, updates) => {
   return list;
 });
 
+// Activating starts a brand new billing period: it opens a fresh history entry
+// (visible immediately, before any cancellation) rather than only recording history
+// once you cancel.
+ipcMain.handle('subscriptions:activate', async (_event, platform, startDate, cycleDays) => {
+  const list = await readJson(subscriptionsFile(currentProfileId), []);
+  let entry = list.find((s) => s.platform === platform);
+  if (!entry) {
+    entry = defaultSubscriptionEntry(platform);
+    list.push(entry);
+  }
+  const resolvedCycle = cycleDays || entry.cycleDays || 30;
+  const historyEntry = {
+    id: crypto.randomUUID(),
+    platform,
+    price: entry.price,
+    cycleDays: resolvedCycle,
+    startDate,
+    cancelledAt: null,
+  };
+  const history = await readJson(subscriptionHistoryFile(currentProfileId), []);
+  history.unshift(historyEntry);
+  await writeJson(subscriptionHistoryFile(currentProfileId), history);
+
+  entry.active = true;
+  entry.startDate = startDate;
+  entry.cycleDays = resolvedCycle;
+  entry.willRenew = true;
+  entry.historyId = historyEntry.id;
+  await writeJson(subscriptionsFile(currentProfileId), list);
+
+  return { subscriptions: list, history };
+});
+
+// "Cancelar" stops the next renewal but does not cut off access you already paid
+// for: it just flags willRenew=false, the countdown keeps running until the
+// billing cycle you're already in actually ends (subscriptions:list handles that
+// automatic expiry). No cost proration happens anywhere in this flow.
 ipcMain.handle('subscriptions:cancel', async (_event, platform) => {
   const list = await readJson(subscriptionsFile(currentProfileId), []);
   const entry = list.find((s) => s.platform === platform);
-  if (entry && entry.active && entry.startDate) {
-    const history = await readJson(subscriptionHistoryFile(currentProfileId), []);
-    history.unshift({
-      id: crypto.randomUUID(),
-      platform: entry.platform,
-      price: entry.price,
-      cycleDays: entry.cycleDays || 30,
-      startDate: entry.startDate,
-      endDate: new Date().toISOString().slice(0, 10),
-    });
-    await writeJson(subscriptionHistoryFile(currentProfileId), history);
+  const history = await readJson(subscriptionHistoryFile(currentProfileId), []);
+  if (entry && entry.active) {
+    entry.willRenew = false;
+    const historyEntry = entry.historyId ? history.find((h) => h.id === entry.historyId) : null;
+    if (historyEntry && !historyEntry.cancelledAt) {
+      historyEntry.cancelledAt = new Date().toISOString().slice(0, 10);
+      await writeJson(subscriptionHistoryFile(currentProfileId), history);
+    }
+    await writeJson(subscriptionsFile(currentProfileId), list);
   }
-  if (entry) {
-    entry.active = false;
-    entry.startDate = null;
+  return { subscriptions: list, history };
+});
+
+ipcMain.handle('subscriptions:renew', async (_event, platform) => {
+  const list = await readJson(subscriptionsFile(currentProfileId), []);
+  const entry = list.find((s) => s.platform === platform);
+  const history = await readJson(subscriptionHistoryFile(currentProfileId), []);
+  if (entry && entry.active) {
+    entry.willRenew = true;
+    const historyEntry = entry.historyId ? history.find((h) => h.id === entry.historyId) : null;
+    if (historyEntry && historyEntry.cancelledAt) {
+      historyEntry.cancelledAt = null;
+      await writeJson(subscriptionHistoryFile(currentProfileId), history);
+    }
+    await writeJson(subscriptionsFile(currentProfileId), list);
   }
-  await writeJson(subscriptionsFile(currentProfileId), list);
-  return list;
+  return { subscriptions: list, history };
 });
 
 ipcMain.handle('subscriptions:historyList', async () => {
@@ -895,7 +963,17 @@ ipcMain.handle('subscriptions:historyDelete', async (_event, id) => {
   const history = await readJson(subscriptionHistoryFile(currentProfileId), []);
   const filtered = history.filter((h) => h.id !== id);
   await writeJson(subscriptionHistoryFile(currentProfileId), filtered);
-  return filtered;
+
+  const list = await readJson(subscriptionsFile(currentProfileId), []);
+  const linked = list.find((s) => s.historyId === id);
+  if (linked) {
+    linked.active = false;
+    linked.startDate = null;
+    linked.willRenew = true;
+    linked.historyId = null;
+    await writeJson(subscriptionsFile(currentProfileId), list);
+  }
+  return { subscriptions: list, history: filtered };
 });
 
 ipcMain.handle('data:export', async () => {
