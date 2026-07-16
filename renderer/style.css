@@ -1889,6 +1889,21 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
   font-family: inherit;
   text-align: right;
 }
+.subscription-cycle-input {
+  flex: 1;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  padding: 4px 6px;
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.subscription-price-input:disabled, .subscription-cycle-input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 .subscription-status { font-size: 11.5px; color: var(--text-muted); }
 .subscription-status.active { color: var(--accent); font-weight: 600; }
 .subscription-status.cancelled { color: #ca8a04; font-weight: 600; }
@@ -1896,13 +1911,20 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .subscription-renew-btn { border-color: #ca8a04; color: #ca8a04; }
 .subscription-renew-btn:hover { background: rgba(202,138,4,0.12); }
 .subscription-card .btn { font-size: 12px; padding: 6px 14px; width: 100%; }
-.subscription-activate-row {
+.subscription-actions-row {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+.subscription-actions-row .btn { width: auto; flex: 1; }
+.subscription-edit-btn { flex: 0 0 auto; }
+.subscription-date-row {
   display: flex;
   flex-direction: column;
   gap: 6px;
   width: 100%;
 }
-.subscription-date-input, .subscription-cycle-select {
+.subscription-date-input {
   width: 100%;
   background: var(--bg-elev-2);
   border: 1px solid var(--border);
@@ -1926,7 +1948,14 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 }
 .sub-history-breakdown-platform { font-size: 12.5px; font-weight: 600; }
 .sub-history-breakdown-meta { font-size: 11.5px; color: var(--text-muted); }
-.sub-history-list { display: flex; flex-direction: column; gap: 8px; }
+.sub-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
 .sub-history-item {
   display: flex;
   align-items: center;

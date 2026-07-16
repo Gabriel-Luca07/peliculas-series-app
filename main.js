@@ -52,7 +52,9 @@ async function readJson(file, fallback) {
 
 async function writeJson(file, data) {
   await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.writeFile(file, JSON.stringify(data, null, 2), 'utf-8');
+  const tmpFile = `${file}.tmp-${process.pid}-${Date.now()}`;
+  await fs.writeFile(tmpFile, JSON.stringify(data, null, 2), 'utf-8');
+  await fs.rename(tmpFile, file);
 }
 
 async function loadMergedSettings() {
@@ -195,7 +197,7 @@ async function runAutoBackup() {
   const settings = await loadMergedSettings();
   if (!settings.autoBackupEnabled) return;
   const retentionDays = Number(settings.autoBackupRetentionDays) || 14;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalDateString();
   const dir = backupsDir(currentProfileId);
   const todayFile = path.join(dir, `backup-${today}.json`);
   try {
@@ -377,7 +379,7 @@ ipcMain.handle('profiles:create', async (_event, name, color, initial) => {
   const profile = {
     id,
     name: (name || '').trim() || 'Perfil',
-    color: color || 'series-1',
+    color: isValidProfileColor(color) ? color : 'series-1',
     initial: sanitizeProfileInitial(initial),
     avatarFile: null,
     createdAt: new Date().toISOString(),
@@ -393,7 +395,7 @@ ipcMain.handle('profiles:update', async (_event, id, updates) => {
   const profile = data.profiles.find((p) => p.id === id);
   if (!profile) return { error: 'NOT_FOUND' };
   if (updates.name !== undefined) profile.name = (updates.name || '').trim() || profile.name;
-  if (updates.color !== undefined) profile.color = updates.color || profile.color;
+  if (updates.color !== undefined && isValidProfileColor(updates.color)) profile.color = updates.color;
   if (updates.initial !== undefined) profile.initial = sanitizeProfileInitial(updates.initial);
   await writeJson(profilesFile, data);
   return { ok: true, profile: withAvatarUrl(profile) };
@@ -854,26 +856,132 @@ function daysElapsedSince(dateStr) {
   return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
 }
 
+// `new Date().toISOString().slice(0, 10)` reads the UTC calendar date, which is
+// wrong for "today" in any timezone ahead of UTC (e.g. Spain) for a window right
+// after local midnight, and in any timezone behind UTC for a window before local
+// midnight — the UTC day can be a day off from the user's actual local day.
+function todayLocalDateString() {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+function addDaysToDateString(dateStr, days) {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+const MAX_AUTO_RENEWALS_PER_LOAD = 500;
+
 function defaultSubscriptionEntry(platform) {
   return { platform, price: null, active: false, startDate: null, cycleDays: 30, willRenew: true, historyId: null };
 }
 
+function dateRangesOverlap(startA, endA, startB, endB) {
+  return startA < endB && startB < endA;
+}
+
+// A platform can't really be billed twice for the same real-world period, so
+// activating (or editing the date/cycle of) a subscription is blocked if the
+// resulting period would overlap an existing history record for that same
+// platform — e.g. paying for HBO annually Jan 2025 - Jan 2026, then trying to
+// also add a monthly HBO period starting in the middle of that. `excludeId` lets
+// the entry's own currently-linked history record be excluded when re-checking
+// after an edit (it's being moved, not conflicting with itself).
+function findOverlappingHistoryEntry(history, platform, startDate, cycleDays, excludeId) {
+  const endDate = addDaysToDateString(startDate, cycleDays);
+  return history.find((h) => (
+    h.platform === platform
+    && h.id !== excludeId
+    && dateRangesOverlap(startDate, endDate, h.startDate, addDaysToDateString(h.startDate, h.cycleDays || 30))
+  ));
+}
+
+// Rolls a single subscription entry through any elapsed cycles (creating one new
+// history entry per cycle, same as real recurring billing) and/or backfills a
+// missing historyId, mutating `entry` and `history` in place. Returns true if
+// anything changed, so callers know whether a write is needed. Shared by
+// subscriptions:list (checks everything on load), subscriptions:activate (so
+// activating with a start date that's already more than one cycle in the past
+// catches up immediately instead of showing a stale "renueva hoy" with no
+// corresponding charge until the next reload), and subscriptions:upsert (so
+// editing the start date/cycle of an active subscription into the past does
+// the same).
+function reconcileSubscriptionEntry(entry, history) {
+  let changed = false;
+  // Backfill first, before the roll-forward loop below: subscriptions activated
+  // before "Historial de gasto" existed (or otherwise missing their link) would
+  // never show up there. If this ran after the loop instead, one that already ran
+  // past its cycle by the time this runs would get expired (its historyId wiped)
+  // before ever being backfilled, and its whole billing period would vanish
+  // without a trace instead of just aging into "finished".
+  if (entry.active && entry.startDate && !entry.historyId) {
+    const historyEntry = {
+      id: crypto.randomUUID(),
+      platform: entry.platform,
+      price: entry.price,
+      cycleDays: entry.cycleDays || 30,
+      startDate: entry.startDate,
+      cancelledAt: entry.willRenew === false ? todayLocalDateString() : null,
+    };
+    history.unshift(historyEntry);
+    entry.historyId = historyEntry.id;
+    changed = true;
+  }
+  // A subscription you never cancelled keeps getting charged in real life, so
+  // as long as willRenew isn't explicitly false, each elapsed cycle rolls it
+  // forward into a brand new history entry (a new charge) instead of just going
+  // back to "Sin activar" — this also catches up on however many cycles passed
+  // since it was last checked. Only a cancelled one (willRenew === false)
+  // actually deactivates once its paid-for cycle ends.
+  const cycle = entry.cycleDays || 30;
+  let renewals = 0;
+  while (entry.active && entry.startDate && daysElapsedSince(entry.startDate) >= cycle && renewals < MAX_AUTO_RENEWALS_PER_LOAD) {
+    renewals += 1;
+    if (entry.willRenew === false) {
+      entry.active = false;
+      entry.startDate = null;
+      entry.willRenew = true;
+      entry.historyId = null;
+      changed = true;
+      break;
+    }
+    const newStartDate = addDaysToDateString(entry.startDate, cycle);
+    const historyEntry = {
+      id: crypto.randomUUID(),
+      platform: entry.platform,
+      price: entry.price,
+      cycleDays: cycle,
+      startDate: newStartDate,
+      cancelledAt: null,
+    };
+    history.unshift(historyEntry);
+    entry.startDate = newStartDate;
+    entry.historyId = historyEntry.id;
+    changed = true;
+  }
+  return changed;
+}
+
 ipcMain.handle('subscriptions:list', async () => {
   const list = await readJson(subscriptionsFile(currentProfileId), []);
+  const history = await readJson(subscriptionHistoryFile(currentProfileId), []);
   let dirty = false;
-  list.forEach((s) => {
-    if (s.active && s.startDate && daysElapsedSince(s.startDate) >= (s.cycleDays || 30)) {
-      s.active = false;
-      s.startDate = null;
-      s.willRenew = true;
-      s.historyId = null;
-      dirty = true;
-    }
-  });
+  let historyDirty = false;
+  for (const s of list) {
+    if (reconcileSubscriptionEntry(s, history)) { dirty = true; historyDirty = true; }
+  }
+  if (historyDirty) await writeJson(subscriptionHistoryFile(currentProfileId), history);
   if (dirty) await writeJson(subscriptionsFile(currentProfileId), list);
   return list;
 });
 
+// Price, cycle and start date are all editable at any time (active or not), so the
+// linked in-progress history entry is kept in sync with whichever of those fields
+// changes: e.g. correcting a price you forgot to set at activation still counts
+// towards "Historial de gasto", and switching monthly -> annual updates the
+// "renews on" projection, instead of freezing those at whatever they were at
+// activation time.
 ipcMain.handle('subscriptions:upsert', async (_event, platform, updates) => {
   const list = await readJson(subscriptionsFile(currentProfileId), []);
   let entry = list.find((s) => s.platform === platform);
@@ -881,9 +989,36 @@ ipcMain.handle('subscriptions:upsert', async (_event, platform, updates) => {
     entry = defaultSubscriptionEntry(platform);
     list.push(entry);
   }
+  const history = await readJson(subscriptionHistoryFile(currentProfileId), []);
+
+  const touchesDateOrCycle = Object.prototype.hasOwnProperty.call(updates, 'startDate')
+    || Object.prototype.hasOwnProperty.call(updates, 'cycleDays');
+  if (touchesDateOrCycle && entry.active) {
+    const prospectiveStart = updates.startDate !== undefined ? updates.startDate : entry.startDate;
+    const prospectiveCycle = updates.cycleDays !== undefined ? updates.cycleDays : (entry.cycleDays || 30);
+    if (prospectiveStart) {
+      const conflict = findOverlappingHistoryEntry(history, platform, prospectiveStart, prospectiveCycle, entry.historyId);
+      if (conflict) return { error: 'OVERLAPS_EXISTING', conflict, subscriptions: list, history };
+    }
+  }
+
   Object.assign(entry, updates);
+  if (entry.historyId) {
+    const historyEntry = history.find((h) => h.id === entry.historyId);
+    if (historyEntry) {
+      if (Object.prototype.hasOwnProperty.call(updates, 'price')) historyEntry.price = entry.price;
+      if (Object.prototype.hasOwnProperty.call(updates, 'cycleDays')) historyEntry.cycleDays = entry.cycleDays;
+      if (Object.prototype.hasOwnProperty.call(updates, 'startDate')) historyEntry.startDate = entry.startDate;
+    }
+  }
+  // If editing pushed the start date (or shortened the cycle) far enough into the
+  // past that one or more cycles have now elapsed, catch up immediately rather
+  // than waiting for the next reload.
+  reconcileSubscriptionEntry(entry, history);
+
+  await writeJson(subscriptionHistoryFile(currentProfileId), history);
   await writeJson(subscriptionsFile(currentProfileId), list);
-  return list;
+  return { subscriptions: list, history };
 });
 
 // Activating starts a brand new billing period: it opens a fresh history entry
@@ -897,6 +1032,11 @@ ipcMain.handle('subscriptions:activate', async (_event, platform, startDate, cyc
     list.push(entry);
   }
   const resolvedCycle = cycleDays || entry.cycleDays || 30;
+  const history = await readJson(subscriptionHistoryFile(currentProfileId), []);
+
+  const conflict = findOverlappingHistoryEntry(history, platform, startDate, resolvedCycle, entry.historyId);
+  if (conflict) return { error: 'OVERLAPS_EXISTING', conflict, subscriptions: list, history };
+
   const historyEntry = {
     id: crypto.randomUUID(),
     platform,
@@ -905,15 +1045,21 @@ ipcMain.handle('subscriptions:activate', async (_event, platform, startDate, cyc
     startDate,
     cancelledAt: null,
   };
-  const history = await readJson(subscriptionHistoryFile(currentProfileId), []);
   history.unshift(historyEntry);
-  await writeJson(subscriptionHistoryFile(currentProfileId), history);
 
   entry.active = true;
   entry.startDate = startDate;
   entry.cycleDays = resolvedCycle;
   entry.willRenew = true;
   entry.historyId = historyEntry.id;
+
+  // If the chosen start date is already more than one cycle in the past (e.g.
+  // backdating the activation to when you actually subscribed in real life),
+  // catch up immediately on the cycles that have already elapsed instead of
+  // showing a stale "renueva hoy" with only the one history entry.
+  reconcileSubscriptionEntry(entry, history);
+
+  await writeJson(subscriptionHistoryFile(currentProfileId), history);
   await writeJson(subscriptionsFile(currentProfileId), list);
 
   return { subscriptions: list, history };
@@ -931,7 +1077,7 @@ ipcMain.handle('subscriptions:cancel', async (_event, platform) => {
     entry.willRenew = false;
     const historyEntry = entry.historyId ? history.find((h) => h.id === entry.historyId) : null;
     if (historyEntry && !historyEntry.cancelledAt) {
-      historyEntry.cancelledAt = new Date().toISOString().slice(0, 10);
+      historyEntry.cancelledAt = todayLocalDateString();
       await writeJson(subscriptionHistoryFile(currentProfileId), history);
     }
     await writeJson(subscriptionsFile(currentProfileId), list);
@@ -980,7 +1126,7 @@ ipcMain.handle('data:export', async () => {
   const win = BrowserWindow.getFocusedWindow();
   const { canceled, filePath } = await dialog.showSaveDialog(win, {
     title: 'Exportar copia de seguridad',
-    defaultPath: `peliculas-backup-${new Date().toISOString().slice(0, 10)}.json`,
+    defaultPath: `peliculas-backup-${todayLocalDateString()}.json`,
     filters: [{ name: 'JSON', extensions: ['json'] }],
   });
   if (canceled || !filePath) return { canceled: true };
@@ -1050,7 +1196,7 @@ ipcMain.handle('app:runBackupNow', async () => {
   const dir = backupsDir(currentProfileId);
   await fs.mkdir(dir, { recursive: true });
   const payload = await buildFullBackupPayload(currentProfileId);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalDateString();
   const filePath = path.join(dir, `backup-${today}.json`);
   await fs.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf-8');
   return { filePath };

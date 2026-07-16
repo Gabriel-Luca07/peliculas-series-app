@@ -60,11 +60,20 @@ Construida con [Electron](https://www.electronjs.org/) y JavaScript "vanilla" (s
   desde donde puedes volver a abrirla o borrarla.
 
 **Suscripciones**
-- Apartado **Suscripciones**: pensado para no pagar varias plataformas de streaming a la vez —
-  contratas una, te pones al día con lo que tienes pendiente ahí, y la cancelas antes de pasar a la
-  siguiente. Aparecen todas tus plataformas con su logo real (vía TMDB), donde puedes guardar el
-  precio tengas o no la suscripción activa, y activar/cancelar con un par de clics indicando fecha
-  de inicio y si el ciclo es mensual o anual.
+- Apartado **Suscripciones**: pensado para comparar qué plataformas te compensa pagar según tus
+  pendientes y llevar control de cuánto te gastas en streaming. Aparecen todas tus plataformas con
+  su logo real (vía TMDB); el precio y el ciclo (mensual, trimestral o anual) se editan libremente
+  mientras no está activa, y "Activar" solo te pide la fecha de inicio.
+- Una vez activa, el precio y el ciclo quedan bloqueados para que un despiste no altere sin querer
+  lo que vale un periodo ya en curso — pulsa **"Editar"** para desbloquearlos y cambiar también la
+  fecha; cada campo se guarda al momento, sin un paso de "Guardar" aparte.
+- **Se renueva sola si no la cancelas**: igual que en la vida real, si no pulsas "Cancelar" antes de
+  que acabe el ciclo, se abre automáticamente el siguiente con su propio cargo en el historial de
+  gasto — incluida la puesta al día si has tenido la app cerrada más de un ciclo. "Cancelar" sigue
+  sin cortarte el acceso al momento: solo detiene la próxima renovación.
+- No se puede activar (ni editar la fecha/ciclo de) una plataforma con fechas que se solapen con un
+  periodo que ya tengas registrado para esa misma plataforma — para no acabar contando dos veces el
+  mismo gasto por error; hay que borrar ese registro antes si de verdad quieres sustituirlo.
 - El **planificador** ("¿Qué plataforma me compensa contratar?") calcula, según tu ritmo real de
   visionado (no una media inventada), cuántas semanas necesitarías para ver todo lo pendiente en
   esa plataforma y cuánto te costaría — sin dejarse engañar por días en los que volcaste de golpe
@@ -262,21 +271,43 @@ inicial personalizada de hasta 2 caracteres, o una foto propia — todo desde "G
 
 La idea de este apartado es sencilla: en vez de tener varias suscripciones de streaming activas
 todo el año, contratas una, te pones al día con lo que tienes pendiente en ella, y la cancelas
-antes de pasar a la siguiente.
+antes de pasar a la siguiente — comparando cuál te compensa más y llevando control de lo que te
+gastas en cada una.
 
 **La cuadrícula de plataformas** muestra automáticamente todos tus servicios de streaming (no las
-entradas como "Cine" o "DVD/Blu-ray", que no son suscripciones) con su logo real. En cada una
-puedes guardar el precio aunque no la tengas activa, y activarla con un clic indicando la fecha de
-inicio y el ciclo (mensual, trimestral o anual) — la app calcula sola los días que te quedan. Puedes
-tener varias plataformas activas a la vez sin ningún aviso, por si de verdad las estás pagando todas.
+entradas como "Cine" o "DVD/Blu-ray", que no son suscripciones) con su logo real. Mientras una
+plataforma **no está activa**, el precio y el ciclo (mensual, trimestral o anual) se editan
+libremente ahí mismo; "Activar" solo te pide entonces la fecha de inicio, ya que el resto ya lo
+elegiste. La app calcula sola los días que te quedan. Puedes tener varias plataformas activas a la
+vez sin ningún aviso, por si de verdad las estás pagando todas.
+
+**Una vez activa, el precio y el ciclo se bloquean** (aparecen en gris, no se pueden tocar) para
+que un clic accidental no cambie sin querer lo que vale un periodo que ya está en curso. El botón
+**"Editar"** los desbloquea en el sitio y muestra además la fecha de inicio; cambies lo que
+cambies, se guarda al momento — no hay un botón de "Guardar" aparte que te puedas dejar sin pulsar.
+Pulsa "Editar" (ahora "Cerrar") otra vez, o simplemente sal de esa pantalla, para que vuelvan a
+bloquearse.
+
+**Se renueva sola si no la cancelas.** Al llegar al final de un ciclo, si no habías pulsado
+"Cancelar", se abre automáticamente el siguiente ciclo con su propio cargo en el **Historial de
+gasto** — igual que en la vida real, donde una suscripción sigue cobrándote mientras no la
+canceles. Si has tenido la app cerrada más de un ciclo (por ejemplo, dos meses sin abrirla con una
+suscripción mensual), se pone al día creando un registro por cada ciclo que realmente ha pasado,
+no solo el último. La comprobación se hace cada vez que entras en Suscripciones o vuelves a la
+ventana con esa pestaña abierta, así que no hace falta reiniciar la app para que se aplique.
 
 **Cancelar no te quita el acceso al momento**: igual que en la vida real, "Cancelar" solo significa
 que no se va a renovar — sigues viendo el contador de días y contando como activa (para el
 planificador, las recomendaciones, etc.) hasta que termina de verdad el ciclo que ya pagaste. La
 tarjeta pasa a mostrar "Cancelada · te quedan N días de acceso" con un botón **"Reactivar
 renovación"** por si pulsaste Cancelar por error o cambias de idea. Cuando el ciclo se acaba de
-verdad, la plataforma vuelve sola a "Sin activar" — no hay renovación automática, tienes que
-activarla otra vez a mano cuando quieras volver a pagarla.
+verdad sin haberla reactivado, la plataforma vuelve sola a "Sin activar".
+
+**No se permiten periodos que se solapen.** Si intentas activar (o cambiarle la fecha/ciclo a) una
+plataforma con unas fechas que coinciden con las de un periodo que ya tienes registrado para esa
+misma plataforma, la app lo bloquea y te dice con cuál se solapa exactamente — para que no acabes
+contando el mismo gasto dos veces sin darte cuenta. Si de verdad quieres sustituir ese registro,
+bórralo primero desde el Historial de gasto.
 
 **El planificador** ("¿Qué plataforma me compensa contratar?") empieza con una **comparativa de
 todas tus plataformas** con pendientes, ordenadas de la que más compensa a la que menos (por coste
@@ -301,8 +332,9 @@ canceladas en el pasado. Cada entrada muestra el coste completo de ese periodo t
 guardado (el precio de una suscripción no se prorratea por días: si pagas, pagas el periodo entero,
 lo canceles cuando lo canceles). Verás un aviso "en curso" mientras sigue activa, "cancelada, con
 acceso" si ya pulsaste Cancelar pero te quedan días, o simplemente las fechas de inicio y fin una
-vez termina de verdad. Con más de una plataforma en el historial aparece también un **desglose por
-plataforma** (cuántas veces la has tenido y cuánto suma en total), además del total general. Si un
+vez termina de verdad. Encima de la lista siempre hay un **desglose por plataforma** (cuántas veces
+la has tenido y cuánto suma en total), además del total general; la propia lista tiene su propio
+scroll interno para no descolocar el resto de la pantalla aunque acumules muchos registros. Si un
 registro no te sirve — por ejemplo porque solo estabas probando cómo funciona la función — puedes
 borrarlo con un clic desde el propio historial; si borras uno que sigue en curso, esa plataforma
 vuelve a quedar sin activar.

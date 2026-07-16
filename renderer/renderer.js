@@ -78,6 +78,18 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+// `new Date().toISOString().slice(0, 10)` reads the UTC calendar date, which is
+// wrong for "today" in any timezone ahead of UTC (e.g. Spain) for a window right
+// after local midnight, and in any timezone behind UTC for a window before local
+// midnight — the UTC day can be a day off from the user's actual local day.
+function localDateStringAt(ms) {
+  const offsetMs = new Date(ms).getTimezoneOffset() * 60000;
+  return new Date(ms - offsetMs).toISOString().slice(0, 10);
+}
+function todayLocalDateString() {
+  return localDateStringAt(Date.now());
+}
+
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -243,7 +255,7 @@ function renderProfileGrid(mode) {
   const grid = $('#profile-grid');
   grid.innerHTML = allProfiles.map((p) => `
     <div class="profile-card" data-id="${p.id}">
-      <div class="profile-card-avatar" style="background:${p.avatarUrl ? 'transparent' : profileColorValue(p.color)}">${avatarInnerHtml(p)}</div>
+      <div class="profile-card-avatar" style="background:${p.avatarUrl ? 'transparent' : escapeHtml(profileColorValue(p.color))}">${avatarInnerHtml(p)}</div>
       <div class="profile-card-name">${escapeHtml(p.name)}</div>
       ${mode === 'manage' ? `
         <div class="profile-card-actions">
@@ -296,7 +308,7 @@ function showProfilePicker({ forced }) {
         const daysLeft = Math.max(30 - days, 0);
         return `
           <div class="profile-deleted-item" data-id="${p.id}">
-            <div class="profile-deleted-avatar" style="background:${p.avatarUrl ? 'transparent' : profileColorValue(p.color)}">${avatarInnerHtml(p)}</div>
+            <div class="profile-deleted-avatar" style="background:${p.avatarUrl ? 'transparent' : escapeHtml(profileColorValue(p.color))}">${avatarInnerHtml(p)}</div>
             <div class="profile-deleted-info">
               <div class="profile-deleted-name">${escapeHtml(p.name)}</div>
               <div class="profile-deleted-meta">Eliminado hace ${days} día${days === 1 ? '' : 's'} · disponible ${daysLeft} día${daysLeft === 1 ? '' : 's'} más</div>
@@ -848,11 +860,18 @@ function renderAll() {
 
 /* ---------- Navigation ---------- */
 
-function switchView(view) {
+async function switchView(view) {
   $$('.nav-item').forEach((btn) => btn.classList.toggle('active', btn.dataset.view === view));
   $$('.view').forEach((section) => section.classList.toggle('active', section.id === `view-${view}`));
   updateNavIndicator();
   if (view === 'suscripciones') {
+    // Re-fetch rather than just re-rendering the cached array: main.js's
+    // subscriptions:list is where auto-renewal/expiry/history-backfill actually
+    // happens, and it only runs when this list is loaded. Without re-fetching
+    // here, a subscription's cycle could elapse while the app stays open and
+    // this tab would show the same stale "renueva hoy" forever until a restart.
+    subscriptions = await window.api.listSubscriptions();
+    subscriptionHistory = await window.api.listSubscriptionHistory();
     renderSubscriptions();
     renderSubscriptionHistory();
     fillSubPlannerPlatforms();
@@ -863,7 +882,7 @@ function switchView(view) {
 /* ---------- Platform selects ---------- */
 
 function fillPlatformSelects() {
-  const plainOptions = PLATFORMS.map((p) => `<option value="${p}">${p}</option>`).join('');
+  const plainOptions = PLATFORMS.map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
   $('#f-platform-select').innerHTML = plainOptions;
   $('#csv-platform').innerHTML = plainOptions;
   $('#bulk-platform').innerHTML = plainOptions;
@@ -909,8 +928,8 @@ function computeStreak(watched) {
     longest = Math.max(longest, run);
   }
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const yesterdayStr = new Date(Date.now() - dayMs).toISOString().slice(0, 10);
+  const todayStr = todayLocalDateString();
+  const yesterdayStr = localDateStringAt(Date.now() - dayMs);
   let cursorMs;
   if (daySet.has(todayStr)) cursorMs = toUtcMs(todayStr);
   else if (daySet.has(yesterdayStr)) cursorMs = toUtcMs(yesterdayStr);
@@ -1017,7 +1036,7 @@ function renderAnniversaryBanner(watched) {
     return;
   }
   const today = new Date();
-  const todayKey = today.toISOString().slice(0, 10);
+  const todayKey = todayLocalDateString();
   if (localStorage.getItem(pk('anniv-dismissed')) === todayKey) {
     banner.classList.add('hidden');
     return;
@@ -1466,8 +1485,11 @@ function removeShareItem(idx) {
   renderSharePreview();
 }
 
+let shareSearchRequestId = 0;
 async function runShareManualSearch(query) {
+  const requestId = ++shareSearchRequestId;
   const res = await window.api.searchTmdb(query);
+  if (requestId !== shareSearchRequestId) return;
   const resultsEl = $('#share-manual-search-results');
   const hintEl = $('#share-manual-search-hint');
 
@@ -1784,9 +1806,18 @@ function invalidateRecommendations() {
   recommendationsTvPool = null;
 }
 
+function subscriptionOverlapMessage(platform, conflict) {
+  const conflictEnd = addDaysToDateString(conflict.startDate, conflict.cycleDays || 30);
+  return `Ya tienes un periodo de ${platform} registrado del ${formatShareListDate(conflict.startDate)} al ${formatShareListDate(conflictEnd)} que se solapa con esas fechas. Elimina ese registro del historial de gasto si quieres sustituirlo.`;
+}
+
 async function activateSubscription(platform, dateValue, cycleDays) {
   const resolvedCycle = cycleDays || getSubscription(platform).cycleDays || 30;
   const res = await window.api.activateSubscription(platform, dateValue, resolvedCycle);
+  if (res.error === 'OVERLAPS_EXISTING') {
+    showToast(subscriptionOverlapMessage(platform, res.conflict), 'error', { duration: 7000 });
+    return false;
+  }
   subscriptions = res.subscriptions;
   subscriptionHistory = res.history;
   invalidateRecommendations();
@@ -1796,30 +1827,55 @@ async function activateSubscription(platform, dateValue, cycleDays) {
 function renderSubscriptions() {
   const grid = $('#subscriptions-grid');
   if (!grid) return;
+  const today = todayLocalDateString();
   grid.innerHTML = subscriptionPlatforms().map((platform, i) => {
     const sub = getSubscription(platform);
     const logo = resolveProviderLogo(platform);
     const remaining = subscriptionDaysRemaining(sub) || 0;
     const badgeColor = SERIES_COLORS[i % SERIES_COLORS.length];
-    const cycleLabel = cycleUnitLabel(sub.cycleDays);
     const platformEsc = escapeHtml(platform);
     // A cancelled subscription keeps active=true until its paid cycle actually
     // ends: cancelling only stops the next renewal, it doesn't cut off access
     // you already paid for.
     const cancelled = sub.active && sub.willRenew === false;
+    const editBtnHtml = `<button type="button" class="btn subscription-edit-btn" data-platform="${platformEsc}">Editar</button>`;
 
     let statusHtml;
     let actionHtml;
     if (sub.active && !cancelled) {
       statusHtml = `<div class="subscription-status active">Activa · ${remaining === 0 ? 'renueva hoy' : `${remaining} ${pluralize(remaining, 'día', 'días')} restantes`}</div>`;
-      actionHtml = `<button type="button" class="btn subscription-cancel-btn" data-platform="${platformEsc}">Cancelar</button>`;
+      actionHtml = `
+        <div class="subscription-actions-row">
+          <button type="button" class="btn subscription-cancel-btn" data-platform="${platformEsc}">Cancelar</button>
+          ${editBtnHtml}
+        </div>`;
     } else if (cancelled) {
       statusHtml = `<div class="subscription-status cancelled">Cancelada · te quedan ${remaining} ${pluralize(remaining, 'día', 'días')} de acceso</div>`;
-      actionHtml = `<button type="button" class="btn subscription-renew-btn" data-platform="${platformEsc}">Reactivar renovación</button>`;
+      actionHtml = `
+        <div class="subscription-actions-row">
+          <button type="button" class="btn subscription-renew-btn" data-platform="${platformEsc}">Reactivar renovación</button>
+          ${editBtnHtml}
+        </div>`;
     } else {
       statusHtml = `<div class="subscription-status">Sin activar</div>`;
       actionHtml = `<button type="button" class="btn primary subscription-activate-btn" data-platform="${platformEsc}">Activar</button>`;
     }
+
+    // Once active, price and cycle (in the row above) are locked so a stray click
+    // can't silently change what an ongoing billing period is worth. "Editar"
+    // unlocks those same fields in place and reveals the start date below; every
+    // field then saves itself the moment it changes (same as an unactivated
+    // platform), so there's no separate "Guardar" step that could be skipped and
+    // leave the screen looking saved when it isn't — clicking the same button
+    // (now "Cerrar") just re-locks it, no second button needed.
+    const editRowHtml = sub.active ? `
+        <div class="subscription-date-row hidden" data-platform="${platformEsc}">
+          <input type="date" class="subscription-date-input" value="${sub.startDate || today}">
+        </div>` : `
+        <div class="subscription-date-row hidden" data-platform="${platformEsc}">
+          <input type="date" class="subscription-date-input" value="${today}">
+          <button type="button" class="btn primary subscription-confirm-btn" data-platform="${platformEsc}">Confirmar</button>
+        </div>`;
 
     return `
       <div class="subscription-card${sub.active ? ' active' : ''}${cancelled ? ' cancelled' : ''}" data-platform="${platformEsc}">
@@ -1827,26 +1883,33 @@ function renderSubscriptions() {
         <div class="subscription-name">${platformEsc}</div>
         <label class="subscription-price-row">
           <span>€</span>
-          <input type="text" inputmode="decimal" class="subscription-price-input" data-platform="${platformEsc}" value="${sub.price != null ? sub.price : ''}" placeholder="0.00">
-          <span>${cycleLabel}</span>
+          <input type="text" inputmode="decimal" class="subscription-price-input" data-platform="${platformEsc}" value="${sub.price != null ? sub.price : ''}" placeholder="0.00"${sub.active ? ' disabled title="Pulsa Editar para cambiarlo"' : ''}>
+          <select class="subscription-cycle-input" data-platform="${platformEsc}" title="${sub.active ? 'Pulsa Editar para cambiarlo' : 'Ciclo de facturación'}"${sub.active ? ' disabled' : ''}>
+            ${CYCLE_OPTIONS.map((o) => `<option value="${o.value}"${(sub.cycleDays || 30) === o.value ? ' selected' : ''}>${o.unit}</option>`).join('')}
+          </select>
         </label>
         ${statusHtml}
         ${actionHtml}
-        <div class="subscription-activate-row hidden" data-platform="${platformEsc}">
-          <select class="subscription-cycle-select">
-            ${CYCLE_OPTIONS.map((o) => `<option value="${o.value}"${(sub.cycleDays || 30) === o.value ? ' selected' : ''}>${o.label}</option>`).join('')}
-          </select>
-          <input type="date" class="subscription-date-input" value="${new Date().toISOString().slice(0, 10)}">
-          <button type="button" class="btn primary subscription-confirm-btn" data-platform="${platformEsc}">Confirmar</button>
-        </div>
+        ${editRowHtml}
       </div>
     `;
   }).join('');
 }
 
-function cycleUnitLabel(cycleDays) {
-  const opt = CYCLE_OPTIONS.find((o) => o.value === cycleDays);
-  return opt ? opt.unit : '/mes';
+// Updates just the status line in place (e.g. after a live cycle/date edit) instead
+// of a full renderSubscriptions(), which would wipe the open "Editar" panel.
+function updateSubscriptionStatusDisplay(platform) {
+  const card = $(`.subscription-card[data-platform="${platform}"]`);
+  const statusEl = card && card.querySelector('.subscription-status');
+  if (!statusEl) return;
+  const sub = getSubscription(platform);
+  const remaining = subscriptionDaysRemaining(sub) || 0;
+  const cancelled = sub.active && sub.willRenew === false;
+  if (sub.active && !cancelled) {
+    statusEl.textContent = `Activa · ${remaining === 0 ? 'renueva hoy' : `${remaining} ${pluralize(remaining, 'día', 'días')} restantes`}`;
+  } else if (cancelled) {
+    statusEl.textContent = `Cancelada · te quedan ${remaining} ${pluralize(remaining, 'día', 'días')} de acceso`;
+  }
 }
 
 function addDaysToDateString(dateStr, days) {
@@ -1906,10 +1969,7 @@ function renderSubscriptionHistory() {
   summaryEl.innerHTML = `<p>Entre todas las veces que has activado una suscripción (sigan activas o ya canceladas), suman aproximadamente <strong>${totalCost.toFixed(2)}€</strong>.</p>`;
 
   if (breakdownEl) {
-    const distinctPlatforms = new Set(subscriptionHistory.map((h) => h.platform)).size;
-    breakdownEl.innerHTML = distinctPlatforms > 1
-      ? `<div class="sub-history-breakdown">${renderSubHistoryBreakdown()}</div>`
-      : '';
+    breakdownEl.innerHTML = `<div class="sub-history-breakdown">${renderSubHistoryBreakdown()}</div>`;
   }
 
   listEl.innerHTML = subscriptionHistory.map((h) => {
@@ -2383,7 +2443,7 @@ function posterOrPlaceholder(movie) {
   return `<div class="poster">${escapeHtml(movie.title)}</div>`;
 }
 
-function renderPendientes() {
+function computeFilteredPendientes() {
   const typeValue = $('#filter-type').value;
   const platformValue = $('#filter-platform').value;
   const genreValue = $('#filter-genre').value;
@@ -2396,11 +2456,15 @@ function renderPendientes() {
     .filter((m) => !genreValue || (m.genres || []).includes(genreValue))
     .filter((m) => !searchValue || m.title.toLowerCase().includes(searchValue));
 
-  list = list.slice().sort((a, b) => {
+  return list.slice().sort((a, b) => {
     if (sortValue === 'added-asc') return (a.dateAdded || '').localeCompare(b.dateAdded || '');
     if (sortValue === 'title-asc') return a.title.localeCompare(b.title, 'es');
     return (b.dateAdded || '').localeCompare(a.dateAdded || '');
   });
+}
+
+function renderPendientes() {
+  const list = computeFilteredPendientes();
 
   const container = $('#list-pendientes');
   const visible = list.slice(0, pendientesPageSize);
@@ -2469,7 +2533,7 @@ function renderPendientes() {
   });
 }
 
-function renderVistas() {
+function computeFilteredVistas() {
   const sortValue = $('#sort-vistas').value;
   const searchValue = $('#search-vistas').value.trim().toLowerCase();
   const typeValue = $('#filter-type-vistas').value;
@@ -2484,12 +2548,16 @@ function renderVistas() {
     .filter((m) => !genreValue || (m.genres || []).includes(genreValue))
     .filter((m) => !ratingMin || (m.rating || 0) >= ratingMin);
 
-  list = list.slice().sort((a, b) => {
+  return list.slice().sort((a, b) => {
     if (sortValue === 'rating-desc') return (b.rating || 0) - (a.rating || 0);
     if (sortValue === 'rating-asc') return (a.rating || 0) - (b.rating || 0);
     if (sortValue === 'date-asc') return (a.dateWatched || '').localeCompare(b.dateWatched || '');
     return (b.dateWatched || '').localeCompare(a.dateWatched || '');
   });
+}
+
+function renderVistas() {
+  const list = computeFilteredVistas();
 
   const container = $('#list-vistas');
   const visible = list.slice(0, vistasPageSize);
@@ -2520,7 +2588,7 @@ function renderVistas() {
       const movie = movies.find((m) => m.id === btn.dataset.id);
       if (!movie) return;
       movie.watchCount = (movie.watchCount || 1) + 1;
-      movie.dateWatched = new Date().toISOString().slice(0, 10);
+      movie.dateWatched = todayLocalDateString();
       await saveMovies();
       renderAll();
       showToast(`${movie.title}: vista ${movie.watchCount} veces`);
@@ -2597,7 +2665,8 @@ function updateBulkBar(view) {
 }
 
 function getVisibleCardIds(view) {
-  return [...document.querySelectorAll(`#list-${view} .card`)].map((c) => c.dataset.id);
+  const list = view === 'pendientes' ? computeFilteredPendientes() : computeFilteredVistas();
+  return list.map((m) => m.id);
 }
 
 function updateSelectAllLabel(view) {
@@ -2918,7 +2987,7 @@ function resetForm() {
   $('#f-rating').value = 7;
   $('#f-rating-value').textContent = '7';
   $('#f-notes').value = '';
-  $('#f-datewatched').value = new Date().toISOString().slice(0, 10);
+  $('#f-datewatched').value = todayLocalDateString();
   $('#f-current-season').value = '';
   $('#f-current-episode').value = '';
   $('#search-input').value = '';
@@ -2983,7 +3052,7 @@ function openModal(movieId, options = {}) {
     $('#f-rating').value = m.rating || 7;
     $('#f-rating-value').textContent = m.rating || 7;
     $('#f-notes').value = m.notes || '';
-    $('#f-datewatched').value = m.dateWatched || new Date().toISOString().slice(0, 10);
+    $('#f-datewatched').value = m.dateWatched || todayLocalDateString();
     $('#f-current-season').value = m.currentSeason || '';
     $('#f-current-episode').value = m.currentEpisode || '';
     $('#f-delete').classList.remove('hidden');
@@ -3048,6 +3117,19 @@ function enforceNumericInput(el) {
 function bindEvents() {
   ['#f-year', '#f-runtime', '#f-seasons', '#f-current-season', '#f-current-episode', '#auto-backup-retention'].forEach((sel) => {
     enforceNumericInput($(sel));
+  });
+
+  // If the app is left running (minimized/backgrounded) with the Suscripciones
+  // tab already open across a billing cycle boundary, switchView() won't fire
+  // again to trigger the refetch — catch that case when the window regains focus.
+  window.addEventListener('focus', async () => {
+    const activeSection = $('.view.active');
+    if (!activeSection || activeSection.id !== 'view-suscripciones') return;
+    subscriptions = await window.api.listSubscriptions();
+    subscriptionHistory = await window.api.listSubscriptionHistory();
+    renderSubscriptions();
+    renderSubscriptionHistory();
+    updateSubPlannerResult();
   });
 
   document.addEventListener('mousemove', (e) => {
@@ -3557,18 +3639,29 @@ function bindEvents() {
     const cancelBtn = e.target.closest('.subscription-cancel-btn');
     const renewBtn = e.target.closest('.subscription-renew-btn');
     const confirmBtn = e.target.closest('.subscription-confirm-btn');
+    const editBtn = e.target.closest('.subscription-edit-btn');
 
     if (activateBtn) {
       const card = activateBtn.closest('.subscription-card');
-      card.querySelector('.subscription-activate-row').classList.remove('hidden');
+      card.querySelector('.subscription-date-row').classList.remove('hidden');
       activateBtn.classList.add('hidden');
+      return;
+    }
+    if (editBtn) {
+      const card = editBtn.closest('.subscription-card');
+      const dateRow = card.querySelector('.subscription-date-row');
+      const enteringEdit = dateRow.classList.contains('hidden');
+      dateRow.classList.toggle('hidden');
+      card.querySelector('.subscription-price-input').disabled = !enteringEdit;
+      card.querySelector('.subscription-cycle-input').disabled = !enteringEdit;
+      editBtn.textContent = enteringEdit ? 'Cerrar' : 'Editar';
       return;
     }
     if (confirmBtn) {
       const platform = confirmBtn.dataset.platform;
       const card = confirmBtn.closest('.subscription-card');
       const dateVal = card.querySelector('.subscription-date-input').value;
-      const cycleVal = Number(card.querySelector('.subscription-cycle-select').value);
+      const cycleVal = Number(card.querySelector('.subscription-cycle-input').value);
       if (!dateVal) return;
       const ok = await activateSubscription(platform, dateVal, cycleVal);
       if (ok) {
@@ -3604,14 +3697,59 @@ function bindEvents() {
   });
 
   $('#subscriptions-grid').addEventListener('change', async (e) => {
+    // The date field is only meant to auto-save while editing an already-active
+    // subscription; for a not-yet-active one it's just part of the "Activar" form
+    // and only takes effect when "Confirmar" is clicked.
+    const dateInput = e.target.closest('.subscription-date-input');
+    if (dateInput) {
+      const card = dateInput.closest('.subscription-card');
+      if (card.classList.contains('active') && dateInput.value) {
+        const platform = card.dataset.platform;
+        const res = await window.api.upsertSubscription(platform, { startDate: dateInput.value });
+        if (res.error === 'OVERLAPS_EXISTING') {
+          showToast(subscriptionOverlapMessage(platform, res.conflict), 'error', { duration: 7000 });
+          dateInput.value = getSubscription(platform).startDate || dateInput.value;
+          return;
+        }
+        subscriptions = res.subscriptions;
+        subscriptionHistory = res.history;
+        updateSubscriptionStatusDisplay(platform);
+        renderSubscriptionHistory();
+        updateSubPlannerResult();
+      }
+      return;
+    }
     const priceInput = e.target.closest('.subscription-price-input');
-    if (!priceInput) return;
-    const platform = priceInput.dataset.platform;
-    const parsed = Number(priceInput.value);
-    const price = priceInput.value !== '' && Number.isFinite(parsed) ? parsed : null;
-    if (price === null) priceInput.value = '';
-    subscriptions = await window.api.upsertSubscription(platform, { price });
-    updateSubPlannerResult();
+    if (priceInput) {
+      const platform = priceInput.dataset.platform;
+      const parsed = Number(priceInput.value);
+      const price = priceInput.value !== '' && Number.isFinite(parsed) ? parsed : null;
+      if (price === null) priceInput.value = '';
+      const res = await window.api.upsertSubscription(platform, { price });
+      subscriptions = res.subscriptions;
+      subscriptionHistory = res.history;
+      renderSubscriptionHistory();
+      updateSubPlannerResult();
+      return;
+    }
+    const cycleInput = e.target.closest('.subscription-cycle-input');
+    if (cycleInput) {
+      const platform = cycleInput.dataset.platform;
+      const cycleDays = Number(cycleInput.value);
+      const res = await window.api.upsertSubscription(platform, { cycleDays });
+      if (res.error === 'OVERLAPS_EXISTING') {
+        showToast(subscriptionOverlapMessage(platform, res.conflict), 'error', { duration: 7000 });
+        cycleInput.value = getSubscription(platform).cycleDays || 30;
+        return;
+      }
+      subscriptions = res.subscriptions;
+      subscriptionHistory = res.history;
+      const cycleOpt = CYCLE_OPTIONS.find((o) => o.value === cycleDays);
+      updateSubscriptionStatusDisplay(platform);
+      renderSubscriptionHistory();
+      updateSubPlannerResult();
+      showToast(`${platform}: ciclo cambiado a ${cycleOpt ? cycleOpt.label.toLowerCase() : cycleDays + ' días'}`);
+    }
   });
 
   $('#subscriptions-grid').addEventListener('keydown', (e) => {
@@ -3632,7 +3770,7 @@ function bindEvents() {
     const btn = e.target.closest('#sub-planner-activate-btn');
     if (!btn) return;
     const platform = btn.dataset.platform;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayLocalDateString();
     const ok = await activateSubscription(platform, today);
     if (ok) {
       renderSubscriptions();
@@ -3643,8 +3781,11 @@ function bindEvents() {
   });
 }
 
+let searchRequestId = 0;
 async function runSearch(query) {
+  const requestId = ++searchRequestId;
   const res = await window.api.searchTmdb(query);
+  if (requestId !== searchRequestId) return;
   const resultsEl = $('#search-results');
   const hintEl = $('#search-hint');
 
@@ -3994,6 +4135,7 @@ async function applyCsvImport() {
   };
 
   const existingTitles = new Map(movies.map((m) => [`${m.type || 'pelicula'}::${m.title.trim().toLowerCase()}`, m]));
+  const countedKeys = new Set();
   let toUpdate = 0;
   let toAdd = 0;
   let skipped = 0;
@@ -4001,7 +4143,8 @@ async function applyCsvImport() {
     const parsed = parseRow(row);
     if (!parsed) { skipped += 1; return; }
     const key = `${parsed.type}::${parsed.title.toLowerCase()}`;
-    if (existingTitles.has(key)) toUpdate += 1; else toAdd += 1;
+    if (existingTitles.has(key) || countedKeys.has(key)) toUpdate += 1;
+    else { toAdd += 1; countedKeys.add(key); }
   });
 
   if (!toUpdate && !toAdd) {
@@ -4018,7 +4161,7 @@ async function applyCsvImport() {
   csvParsed.rows.forEach((row) => {
     const parsed = parseRow(row);
     if (!parsed) return;
-    const dateWatched = dateIdx >= 0 ? (normalizeDate(row[dateIdx]) || new Date().toISOString().slice(0, 10)) : new Date().toISOString().slice(0, 10);
+    const dateWatched = dateIdx >= 0 ? (normalizeDate(row[dateIdx]) || todayLocalDateString()) : todayLocalDateString();
     const existing = movies.find((m) => (m.type || 'pelicula') === parsed.type && m.title.trim().toLowerCase() === parsed.title.toLowerCase());
     if (existing) {
       existing.status = 'vista';
