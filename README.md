@@ -117,8 +117,13 @@ PeliculasApp/
 ├── renderer/                 Todo lo que se ve y ejecuta dentro de la ventana.
 │   ├── index.html             Estructura de todas las pantallas (Resumen, Pendientes,
 │   │                           Vistas, Papelera, Recomendar, Suscripciones, Ajustes) y los modales.
-│   ├── renderer.js             Toda la lógica de la interfaz: render de listas y gráficas,
-│   │                           filtros, formularios, ajustes, animaciones.
+│   ├── renderer.js             Estado compartido, utilidades pequeñas, init() y todo el
+│   │                           cableado de eventos (bindEvents) — se carga el último.
+│   ├── features/               Un archivo por sección (perfiles, suscripciones, papelera,
+│   │                           recomendaciones, listas para compartir, dashboard, apariencia,
+│   │                           actualizaciones, y el propio listado de películas/series).
+│   │                           Sin bundler: son scripts normales que comparten el mismo
+│   │                           ámbito global que renderer.js, cargados antes que él.
 │   ├── style.css               Estilos, temas, animaciones y diseño responsive.
 │   └── fonts/                  Tipografía Inter empaquetada localmente (funciona sin internet).
 │
