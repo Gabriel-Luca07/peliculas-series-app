@@ -1,6 +1,6 @@
 {
   "name": "peliculas-app",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "description": "App de escritorio para gestionar peliculas y series pendientes y vistas",
   "main": "main.js",
   "private": true,
