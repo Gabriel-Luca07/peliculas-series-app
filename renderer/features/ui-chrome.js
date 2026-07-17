@@ -142,3 +142,61 @@ async function switchView(view) {
   }
 }
 
+
+function bindGlobalUiEvents() {
+  document.addEventListener('mousemove', (e) => {
+    const card = e.target.closest('.card');
+    if (!card) return;
+    const rect = card.getBoundingClientRect();
+    card.style.setProperty('--mx', `${((e.clientX - rect.left) / rect.width) * 100}%`);
+    card.style.setProperty('--my', `${((e.clientY - rect.top) / rect.height) * 100}%`);
+  });
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.btn, .icon-btn');
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height);
+    const ripple = document.createElement('span');
+    ripple.className = 'btn-ripple';
+    ripple.style.width = `${size}px`;
+    ripple.style.height = `${size}px`;
+    ripple.style.left = `${e.clientX - rect.left - size / 2}px`;
+    ripple.style.top = `${e.clientY - rect.top - size / 2}px`;
+    btn.appendChild(ripple);
+    ripple.addEventListener('animationend', () => ripple.remove());
+  });
+
+  $$('.nav-item').forEach((btn) => {
+    btn.addEventListener('click', () => switchView(btn.dataset.view));
+  });
+
+  $('#btn-global-search').addEventListener('click', openGlobalSearch);
+  $('#global-search-close').addEventListener('click', closeGlobalSearch);
+  $('#global-search-overlay').addEventListener('click', (e) => {
+    if (e.target.id === 'global-search-overlay') closeGlobalSearch();
+  });
+  $('#global-search-input').addEventListener('input', (e) => {
+    renderGlobalSearchResults(e.target.value);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      const overlay = $('#global-search-overlay');
+      if (overlay.classList.contains('hidden')) openGlobalSearch();
+      else closeGlobalSearch();
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (!$('#global-search-overlay').classList.contains('hidden')) closeGlobalSearch();
+      else if (!$('#modal-overlay').classList.contains('hidden')) closeModal();
+      else if (!$('#bulk-overlay').classList.contains('hidden')) closeBulkModal();
+      else if (!$('#wrapped-overlay').classList.contains('hidden')) closeWrappedModal();
+      else if (!$('#share-config-overlay').classList.contains('hidden')) closeShareConfigModal();
+      else if (!$('#profile-overlay').classList.contains('hidden') && !$('#profile-close-btn').classList.contains('hidden')) {
+        $('#profile-close-btn').click();
+      }
+    }
+  });
+}

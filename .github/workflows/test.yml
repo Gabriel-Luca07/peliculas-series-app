@@ -1,0 +1,19 @@
+name: Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # lib/ and test/ have zero npm dependencies (only node: built-ins and
+      # each other), so no `npm install` is needed just to run the tests.
+      - run: node --test

@@ -7,7 +7,8 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "postdist": "node scripts/rename-release-assets.js"
   },
   "devDependencies": {
     "electron": "^33.4.11",

@@ -173,3 +173,157 @@ function addCustomPlatform(name) {
   showToast(`"${trimmed}" añadida a tus plataformas`);
 }
 
+
+function bindAppearanceEvents() {
+  $('#btn-theme-toggle').addEventListener('click', toggleTheme);
+  $$('.swatch[data-accent]').forEach((s) => s.addEventListener('click', () => setAccent(s.dataset.accent)));
+  $$('.swatch[data-chart-color]').forEach((s) => s.addEventListener('click', () => setChartColor(s.dataset.chartColor)));
+  $$('.segment').forEach((s) => s.addEventListener('click', () => setDensity(s.dataset.density)));
+  $('#motion-toggle').addEventListener('change', (e) => setMotion(e.target.checked));
+
+  $('#pref-start-view').addEventListener('change', (e) => {
+    localStorage.setItem(pk('pref-start-view'), e.target.value);
+  });
+  $('#pref-sort-pendientes').addEventListener('change', (e) => {
+    localStorage.setItem(pk('pref-sort-pendientes'), e.target.value);
+    $('#sort-pendientes').value = e.target.value;
+    resetPendientesPageAndRender();
+  });
+  $('#pref-sort-vistas').addEventListener('change', (e) => {
+    localStorage.setItem(pk('pref-sort-vistas'), e.target.value);
+    $('#sort-vistas').value = e.target.value;
+    resetVistasPageAndRender();
+  });
+  $('#pref-page-size').addEventListener('change', (e) => {
+    localStorage.setItem(pk('pref-page-size'), e.target.value);
+    PAGE_SIZE = Number(e.target.value) || 48;
+    pendientesPageSize = PAGE_SIZE;
+    vistasPageSize = PAGE_SIZE;
+    renderPendientes();
+    renderVistas();
+  });
+  $('#pref-delete-mode').addEventListener('change', (e) => {
+    localStorage.setItem(pk('pref-delete-mode'), e.target.value);
+  });
+  $('#pref-recs-toggle').addEventListener('change', (e) => {
+    localStorage.setItem(pk('pref-recs-enabled'), String(e.target.checked));
+    if (e.target.checked && !recommendationsCache) loadRecommendations();
+  });
+  $('#pref-anniv-toggle').addEventListener('change', (e) => {
+    localStorage.setItem(pk('pref-anniv-enabled'), String(e.target.checked));
+    renderDashboard();
+  });
+  $$('.panel-toggle').forEach((toggle) => {
+    toggle.addEventListener('change', (e) => {
+      setPanelVisibility(toggle.dataset.panel, e.target.checked);
+    });
+  });
+
+  $('#btn-add-platform').addEventListener('click', () => {
+    addCustomPlatform($('#new-platform-input').value);
+    $('#new-platform-input').value = '';
+  });
+  $('#new-platform-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addCustomPlatform($('#new-platform-input').value);
+      $('#new-platform-input').value = '';
+    }
+  });
+
+  $('#btn-open-data-folder').addEventListener('click', () => window.api.openDataFolder());
+  $('#btn-open-backups-folder').addEventListener('click', () => window.api.openBackupsFolder());
+  $('#btn-backup-now').addEventListener('click', async () => {
+    await window.api.runBackupNow();
+    showToast('Copia de seguridad guardada');
+  });
+  $('#auto-backup-toggle').addEventListener('change', async (e) => {
+    settings.autoBackupEnabled = e.target.checked;
+    await window.api.saveSettings(settings);
+  });
+  $('#auto-backup-retention').addEventListener('change', async (e) => {
+    settings.autoBackupRetentionDays = Number(e.target.value) || 14;
+    await window.api.saveSettings(settings);
+  });
+  $('#btn-reset-appearance').addEventListener('click', () => {
+    resetAppearance();
+    showToast('Apariencia restablecida a los valores por defecto');
+  });
+  $('#btn-wipe-data').addEventListener('click', async () => {
+    const count = movies.length;
+    if (!count) { showToast('Tu lista ya está vacía', 'error'); return; }
+    if (!confirm(`Esto eliminará TODAS tus películas y series guardadas (${count} títulos). Esta acción no se puede deshacer. ¿Continuar?`)) return;
+    movies = [];
+    await saveMovies();
+    renderAll();
+    showToast('Se han borrado todos los datos', 'error');
+  });
+
+  $('#save-settings').addEventListener('click', async () => {
+    settings.tmdbApiKey = $('#tmdb-key').value.trim();
+    settings.language = $('#tmdb-language').value;
+    settings.region = $('#tmdb-region').value;
+    await window.api.saveSettings(settings);
+    const status = $('#settings-status');
+    status.textContent = 'Ajustes guardados.';
+    status.classList.remove('error');
+    setTimeout(() => { status.textContent = ''; }, 2500);
+  });
+
+  $('#btn-export').addEventListener('click', async () => {
+    const status = $('#backup-status');
+    const res = await window.api.exportData();
+    if (res.canceled) return;
+    status.classList.remove('error');
+    status.textContent = `Copia guardada en ${res.filePath}`;
+  });
+
+  $('#btn-import').addEventListener('click', async () => {
+    const status = $('#backup-status');
+    const res = await window.api.importData();
+    if (res.canceled) return;
+    if (res.error) {
+      status.classList.add('error');
+      status.textContent = 'El archivo seleccionado no es una copia de seguridad válida.';
+      return;
+    }
+    const payload = res.payload;
+    const parts = [`${payload.movies.length} título${payload.movies.length === 1 ? '' : 's'}`];
+    if (Array.isArray(payload.trash)) parts.push(`${payload.trash.length} en la papelera`);
+    if (Array.isArray(payload.subscriptions)) parts.push(`${payload.subscriptions.length} suscripciones`);
+    if (Array.isArray(payload.shareLists)) parts.push(`${payload.shareLists.length} listas de Recomendar`);
+    if (payload.settings) parts.push('tus ajustes');
+    if (payload.profileAppearance) parts.push('la apariencia del perfil (color/foto)');
+    if (!confirm(`Se importará: ${parts.join(', ')}. Esto reemplazará lo anterior de cada uno por lo del archivo (lo que no incluya el archivo se queda como está). ¿Continuar?`)) return;
+
+    const applyRes = await window.api.applyImportedBackup(payload);
+    if (!applyRes || applyRes.error) {
+      status.classList.add('error');
+      status.textContent = 'No se pudo aplicar la copia de seguridad.';
+      return;
+    }
+
+    movies = await window.api.loadMovies();
+    trash = await window.api.loadTrash();
+    subscriptions = await window.api.listSubscriptions();
+    shareLists = await window.api.listShareLists();
+    settings = await window.api.loadSettings();
+    allProfiles = (await window.api.listProfiles()).profiles;
+
+    $('#tmdb-language').value = settings.language || 'es-ES';
+    $('#tmdb-region').value = settings.region || 'ES';
+    $('#auto-backup-toggle').checked = settings.autoBackupEnabled !== false;
+    $('#auto-backup-retention').value = settings.autoBackupRetentionDays || 14;
+
+    renderAll();
+    renderTrash();
+    renderSubscriptions();
+    fillSubPlannerPlatforms();
+    updateSubPlannerResult();
+    renderShareListsGrid();
+    updateProfileBadge();
+
+    status.classList.remove('error');
+    status.textContent = `Copia importada correctamente (${applyRes.counts.movies} títulos).`;
+  });
+}

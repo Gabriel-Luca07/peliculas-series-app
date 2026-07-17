@@ -784,3 +784,373 @@ async function applyCsvImport() {
   status.classList.remove('error');
   status.textContent = `Importación completa: ${toUpdate} actualizada${toUpdate === 1 ? '' : 's'} a vista, ${toAdd} añadida${toAdd === 1 ? '' : 's'} nueva${toAdd === 1 ? '' : 's'}.`;
 }
+
+
+/* ---------- Event bindings ---------- */
+
+// Promoted from local consts (previously inside bindEvents()) to top-level
+// functions because bindAppearanceEvents() (appearance-settings.js) also
+// calls these from the #pref-sort-pendientes/#pref-sort-vistas handlers.
+function resetPendientesPageAndRender() { pendientesPageSize = PAGE_SIZE; renderPendientes(); }
+function resetVistasPageAndRender() { vistasPageSize = PAGE_SIZE; renderVistas(); }
+
+function bindMovieEvents() {
+  $('#btn-add').addEventListener('click', () => openModal(null));
+
+  $('#modal-close').addEventListener('click', closeModal);
+  $('#modal-overlay').addEventListener('click', (e) => {
+    if (e.target.id === 'modal-overlay') closeModal();
+  });
+
+  $('#filter-type').addEventListener('change', resetPendientesPageAndRender);
+  $('#filter-platform').addEventListener('change', resetPendientesPageAndRender);
+  $('#filter-genre').addEventListener('change', resetPendientesPageAndRender);
+  $('#sort-pendientes').addEventListener('change', resetPendientesPageAndRender);
+  $('#search-pendientes').addEventListener('input', resetPendientesPageAndRender);
+  $('#filter-type-vistas').addEventListener('change', resetVistasPageAndRender);
+  $('#filter-platform-vistas').addEventListener('change', resetVistasPageAndRender);
+  $('#filter-genre-vistas').addEventListener('change', resetVistasPageAndRender);
+  $('#filter-rating-min').addEventListener('change', resetVistasPageAndRender);
+  $('#sort-vistas').addEventListener('change', resetVistasPageAndRender);
+  $('#search-vistas').addEventListener('input', resetVistasPageAndRender);
+  $('#load-more-pendientes').addEventListener('click', () => {
+    pendientesPageSize += PAGE_SIZE;
+    renderPendientes();
+  });
+  $('#load-more-vistas').addEventListener('click', () => {
+    vistasPageSize += PAGE_SIZE;
+    renderVistas();
+  });
+
+  $('#f-status').addEventListener('change', () => {
+    updateFieldVisibility();
+    updateProgressVisibility();
+  });
+  $('#f-type').addEventListener('change', () => {
+    updateTypeFieldVisibility();
+    updateProgressVisibility();
+  });
+  $('#f-rating').addEventListener('input', () => {
+    const valueEl = $('#f-rating-value');
+    valueEl.textContent = $('#f-rating').value;
+    valueEl.classList.remove('pulse');
+    void valueEl.offsetWidth;
+    valueEl.classList.add('pulse');
+  });
+  $('#f-platform-select').addEventListener('change', () => {
+    $('#f-platform-custom').classList.toggle('hidden', $('#f-platform-select').value !== 'Otra');
+  });
+  $('#f-poster').addEventListener('input', () => {
+    $('#f-poster-preview').src = $('#f-poster').value;
+  });
+
+  $('#genre-trigger').addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleGenrePanel();
+  });
+  document.addEventListener('click', (e) => {
+    const container = $('#genre-multiselect');
+    if (!container.contains(e.target)) toggleGenrePanel(false);
+  });
+
+  $('#btn-refresh-tmdb').addEventListener('click', () => {
+    const title = $('#f-title').value.trim();
+    if (!title) return;
+    $('#search-input').value = title;
+    clearTimeout(searchTimer);
+    $('#search-hint').innerHTML = '<span class="spinner"></span> Buscando...';
+    runSearch(title);
+  });
+
+  $('#search-input').addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    const query = $('#search-input').value.trim();
+    if (!query) {
+      $('#search-results').innerHTML = '';
+      $('#search-hint').textContent = '';
+      return;
+    }
+    $('#search-hint').innerHTML = '<span class="spinner"></span> Buscando...';
+    searchTimer = setTimeout(() => runSearch(query), 400);
+  });
+
+  $('#movie-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    handleSubmit();
+  });
+
+  $('#f-delete').addEventListener('click', async () => {
+    if (!editingId) return;
+    const deleted = movies.find((m) => m.id === editingId);
+    if (!deleted) return;
+    const deleteMode = localStorage.getItem(pk('pref-delete-mode')) || 'undo';
+
+    if (deleteMode === 'confirm' && !confirm(`¿Eliminar "${deleted.title}" de tu lista?`)) return;
+
+    movies = movies.filter((m) => m.id !== editingId);
+    trash.push({ ...deleted, deletedAt: new Date().toISOString() });
+    await saveMovies();
+    await saveTrash();
+    renderAll();
+    renderTrash();
+    closeModal();
+
+    if (deleteMode === 'confirm') {
+      showToast(`${deleted.title} eliminada`, 'error');
+      return;
+    }
+
+    showToast(`${deleted.title} eliminada`, 'error', {
+      actionLabel: 'Deshacer',
+      duration: 5000,
+      onAction: async () => {
+        trash = trash.filter((m) => m.id !== deleted.id);
+        movies.push(deleted);
+        await saveMovies();
+        await saveTrash();
+        renderAll();
+        renderTrash();
+        showToast(`${deleted.title} restaurada`);
+      },
+    });
+  });
+
+  $('#btn-import-csv').addEventListener('click', async () => {
+    const status = $('#csv-import-status');
+    status.textContent = '';
+    const res = await window.api.pickCsvFile();
+    if (res.canceled) return;
+    if (res.error) {
+      status.classList.add('error');
+      status.textContent = 'No se pudo leer el archivo.';
+      return;
+    }
+    const parsed = parseCsv(res.text);
+    if (!parsed.headers.length || !parsed.rows.length) {
+      status.classList.add('error');
+      status.textContent = 'El archivo no parece un CSV válido.';
+      return;
+    }
+    csvParsed = parsed;
+    showCsvMappingPanel(res.fileName);
+  });
+
+  $('#csv-platform').addEventListener('change', () => {
+    $('#csv-platform-custom').classList.toggle('hidden', $('#csv-platform').value !== 'Otra');
+  });
+
+  $('#csv-import-cancel').addEventListener('click', () => {
+    csvParsed = null;
+    $('#csv-mapping').classList.add('hidden');
+  });
+
+  $('#csv-import-confirm').addEventListener('click', async () => {
+    await applyCsvImport();
+  });
+
+  $('#btn-bulk-add').addEventListener('click', openBulkModal);
+  $('#bulk-close').addEventListener('click', closeBulkModal);
+  $('#bulk-cancel').addEventListener('click', closeBulkModal);
+  $('#bulk-overlay').addEventListener('click', (e) => {
+    if (e.target.id === 'bulk-overlay') closeBulkModal();
+  });
+  $('#bulk-platform').addEventListener('change', () => {
+    $('#bulk-platform-custom').classList.toggle('hidden', $('#bulk-platform').value !== 'Otra');
+  });
+  $('#bulk-submit').addEventListener('click', applyBulkAdd);
+
+  $('#btn-check-providers').addEventListener('click', async () => {
+    const tmdbId = $('#f-tmdbid').value;
+    const mediaType = $('#f-mediatype').value;
+    if (!tmdbId) return;
+    await fetchAndShowProviders(tmdbId, mediaType);
+  });
+
+  $('#btn-watch-trailer').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const tmdbId = $('#f-tmdbid').value;
+    const mediaType = $('#f-mediatype').value;
+    if (!tmdbId) return;
+    const originalLabel = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner"></span> Buscando tráiler...';
+    const res = await window.api.openTrailer(tmdbId, mediaType);
+    btn.innerHTML = originalLabel;
+    if (res.error === 'NO_API_KEY') showToast('Necesitas configurar tu API key de TMDB en Ajustes', 'error');
+    else if (res.error === 'NOT_FOUND') showToast('No se encontró tráiler para este título', 'error');
+    else if (res.error) showToast('No se pudo abrir el tráiler', 'error');
+    else showToast('Abriendo tráiler en el navegador...');
+  });
+
+  $('#btn-select-pendientes').addEventListener('click', () => toggleSelectionMode('pendientes'));
+  $('#btn-select-vistas').addEventListener('click', () => toggleSelectionMode('vistas'));
+  $('#btn-select-all-pendientes').addEventListener('click', () => toggleSelectAll('pendientes'));
+  $('#btn-select-all-vistas').addEventListener('click', () => toggleSelectAll('vistas'));
+  $('#btn-bulk-cancel-pendientes').addEventListener('click', () => exitSelectionMode('pendientes'));
+  $('#btn-bulk-cancel-vistas').addEventListener('click', () => exitSelectionMode('vistas'));
+  $('#btn-bulk-platform-pendientes').addEventListener('click', () => applyBulkPlatformChange('pendientes'));
+  $('#btn-bulk-platform-vistas').addEventListener('click', () => applyBulkPlatformChange('vistas'));
+  $('#btn-bulk-delete-pendientes').addEventListener('click', () => applyBulkDelete('pendientes'));
+  $('#btn-bulk-delete-vistas').addEventListener('click', () => applyBulkDelete('vistas'));
+}
+
+let searchRequestId = 0;
+async function runSearch(query) {
+  const requestId = ++searchRequestId;
+  const res = await window.api.searchTmdb(query);
+  if (requestId !== searchRequestId) return;
+  const resultsEl = $('#search-results');
+  const hintEl = $('#search-hint');
+
+  if (res.error === 'NO_API_KEY') {
+    hintEl.textContent = 'Sin API key configurada (ver Ajustes). Puedes rellenar los datos a mano.';
+    resultsEl.innerHTML = '';
+    return;
+  }
+  if (res.error === 'INVALID_API_KEY') {
+    hintEl.textContent = 'La API key no es válida. Revísala en Ajustes.';
+    resultsEl.innerHTML = '';
+    return;
+  }
+  if (res.error) {
+    hintEl.textContent = 'No se pudo buscar (sin conexión o error de TMDB). Rellena a mano.';
+    resultsEl.innerHTML = '';
+    return;
+  }
+
+  hintEl.textContent = res.results.length ? '' : 'Sin resultados.';
+  resultsEl.innerHTML = res.results.map((r, i) => `
+    <div class="search-result" data-idx="${i}" style="animation-delay:${i * 25}ms">
+      <img src="${r.poster || ''}" alt="">
+      <div>
+        <div class="sr-title">${escapeHtml(r.title)} <span class="type-tag">${r.mediaType === 'tv' ? 'Serie' : 'Película'}</span></div>
+        <div class="sr-year">${escapeHtml(r.year)}${r.genres.length ? ' · ' + escapeHtml(r.genres.join(', ')) : ''}</div>
+      </div>
+    </div>
+  `).join('');
+
+  resultsEl.querySelectorAll('.search-result').forEach((el) => {
+    el.addEventListener('click', async () => {
+      const r = res.results[Number(el.dataset.idx)];
+      resultsEl.innerHTML = '';
+      await applyTmdbResultToForm(r);
+    });
+  });
+}
+
+async function applyTmdbResultToForm(r) {
+  const type = r.mediaType === 'tv' ? 'serie' : 'pelicula';
+  $('#f-title').value = r.title;
+  $('#f-year').value = r.year || '';
+  setGenres(r.genres || []);
+  $('#f-poster').value = r.poster || '';
+  $('#f-poster-preview').src = r.poster || '';
+  $('#f-tmdbid').value = r.tmdbId;
+  $('#f-mediatype').value = r.mediaType;
+  $('#f-type').value = type;
+  updateTypeFieldVisibility();
+  $('#search-hint').textContent = `Seleccionado: ${r.title} · obteniendo detalles...`;
+  const details = await window.api.getTmdbDetails(r.tmdbId, r.mediaType);
+  if (details) {
+    if (details.runtime) $('#f-runtime').value = details.runtime;
+    if (details.seasons) $('#f-seasons').value = details.seasons;
+  }
+  $('#search-hint').textContent = `Seleccionado: ${r.title}`;
+  $('#btn-check-providers').classList.remove('hidden');
+  $('#btn-watch-trailer').classList.remove('hidden');
+  await fetchAndShowProviders(r.tmdbId, r.mediaType);
+}
+
+async function fetchAndShowProviders(tmdbId, mediaType) {
+  const statusEl = $('#providers-status');
+  const chipsEl = $('#platform-suggestions');
+  chipsEl.innerHTML = '';
+  chipsEl.classList.add('hidden');
+  statusEl.innerHTML = '<span class="spinner"></span> Consultando disponibilidad...';
+  const res = await window.api.getTmdbProviders(tmdbId, mediaType);
+  if (!res || res.error === 'NO_API_KEY') {
+    statusEl.textContent = '';
+    return;
+  }
+  if (res.error) {
+    statusEl.textContent = 'No se pudo consultar la disponibilidad ahora mismo.';
+    return;
+  }
+  const streamNames = res.providers || [];
+  const rentBuyNames = (res.rentBuy || []).filter((n) => !streamNames.includes(n));
+  if (!streamNames.length && !rentBuyNames.length) {
+    statusEl.textContent = 'TMDB no tiene datos de disponibilidad en España para este título.';
+    return;
+  }
+  statusEl.textContent = streamNames.length ? 'Disponible ahora en (haz clic para elegirla):' : 'Solo encontrada en alquiler/compra:';
+  const chips = streamNames.map((name) => ({ name, kind: 'stream' }))
+    .concat(rentBuyNames.map((name) => ({ name, kind: 'rentbuy' })));
+  chipsEl.innerHTML = chips.map((c, i) => `<span class="chip${c.kind === 'rentbuy' ? ' muted' : ''}" data-name="${escapeHtml(c.name)}" style="animation-delay:${i * 30}ms">${escapeHtml(c.name)}${c.kind === 'rentbuy' ? ' (alquiler/compra)' : ''}</span>`).join('');
+  chipsEl.classList.remove('hidden');
+  chipsEl.querySelectorAll('.chip:not(.muted)').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      chipsEl.querySelectorAll('.chip').forEach((c) => c.classList.remove('selected'));
+      chip.classList.add('selected');
+      const rawName = chip.dataset.name;
+      const mapped = normalizeProviderName(rawName);
+      if (mapped) {
+        $('#f-platform-select').value = mapped;
+        $('#f-platform-custom').classList.add('hidden');
+      } else {
+        $('#f-platform-select').value = 'Otra';
+        $('#f-platform-custom').value = rawName;
+        $('#f-platform-custom').classList.remove('hidden');
+      }
+    });
+  });
+}
+
+async function handleSubmit() {
+  const title = $('#f-title').value.trim();
+  if (!title) return;
+  const status = $('#f-status').value;
+  const type = $('#f-type').value;
+  const platform = currentPlatformValue();
+  const existingMovie = editingId ? movies.find((m) => m.id === editingId) : null;
+
+  if (!editingId) {
+    const duplicate = movies.find((m) => (m.type || 'pelicula') === type && m.title.trim().toLowerCase() === title.toLowerCase());
+    if (duplicate) {
+      const statusLabel = duplicate.status === 'vista' ? 'vista' : (duplicate.status === 'viendo' ? 'en curso' : 'pendiente');
+      const proceed = confirm(`Ya tienes "${duplicate.title}" (${TYPE_LABELS[duplicate.type] || TYPE_LABELS.pelicula}) en tu lista, marcada como ${statusLabel}. ¿Quieres añadirla de todas formas como una entrada aparte?`);
+      if (!proceed) return;
+    }
+  }
+
+  const payload = {
+    id: editingId || uid(),
+    tmdbId: $('#f-tmdbid').value ? Number($('#f-tmdbid').value) : null,
+    mediaType: $('#f-mediatype').value || null,
+    type,
+    title,
+    year: $('#f-year').value.trim(),
+    runtime: $('#f-runtime').value ? Number($('#f-runtime').value) : null,
+    seasons: type === 'serie' && $('#f-seasons').value ? Number($('#f-seasons').value) : null,
+    genres: $('#f-genres').value.split(',').map((g) => g.trim()).filter(Boolean),
+    poster: $('#f-poster').value.trim(),
+    platform,
+    status,
+    currentSeason: status === 'viendo' && type === 'serie' && $('#f-current-season').value ? Number($('#f-current-season').value) : null,
+    currentEpisode: status === 'viendo' && type === 'serie' && $('#f-current-episode').value ? Number($('#f-current-episode').value) : null,
+    rating: status === 'vista' ? Number($('#f-rating').value) : null,
+    notes: status === 'vista' ? $('#f-notes').value.trim() : '',
+    dateWatched: status === 'vista' ? $('#f-datewatched').value : null,
+    watchCount: status === 'vista' ? (existingMovie && existingMovie.status === 'vista' ? (existingMovie.watchCount || 1) : 1) : null,
+    dateAdded: existingMovie ? existingMovie.dateAdded : new Date().toISOString(),
+  };
+
+  if (editingId) {
+    movies = movies.map((m) => (m.id === editingId ? payload : m));
+  } else {
+    movies.push(payload);
+  }
+
+  await saveMovies();
+  renderAll();
+  closeModal();
+  showToast(editingId ? `${title} actualizada` : `${title} añadida`);
+}

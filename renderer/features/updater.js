@@ -60,3 +60,33 @@ function initAutoUpdater() {
   });
 }
 
+
+function bindUpdaterEvents() {
+  $('#btn-check-updates').addEventListener('click', async () => {
+    const statusEl = $('#update-status');
+    statusEl.textContent = 'Buscando actualizaciones...';
+    const res = await window.api.checkForUpdates();
+    if (res.error === 'DEV_MODE') {
+      statusEl.textContent = 'La búsqueda de actualizaciones solo funciona en la versión instalada.';
+    } else if (res.error) {
+      statusEl.textContent = 'No se pudo comprobar si hay actualizaciones (revisa tu conexión).';
+    } else if (res.version) {
+      pendingUpdateInfo = { version: res.version, releaseNotes: res.releaseNotes };
+      refreshUpdateNotesButton();
+      statusEl.textContent = `Hay una versión nueva (${res.version}); descargándola en segundo plano...`;
+    } else {
+      statusEl.textContent = 'Ya tienes la última versión.';
+    }
+  });
+
+  $('#btn-view-update-notes').addEventListener('click', openUpdateNotesModal);
+  $('#btn-restart-update').addEventListener('click', () => window.api.installUpdate());
+  $('#update-notes-close').addEventListener('click', closeUpdateNotesModal);
+  $('#update-notes-later').addEventListener('click', closeUpdateNotesModal);
+  $('#update-notes-install').addEventListener('click', () => {
+    if (updateReadyToInstall) window.api.installUpdate();
+  });
+  $('#update-notes-overlay').addEventListener('click', (e) => {
+    if (e.target.id === 'update-notes-overlay') closeUpdateNotesModal();
+  });
+}

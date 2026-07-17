@@ -372,3 +372,9 @@ function showProfilePicker({ forced }) {
   });
 }
 
+
+function bindProfileEvents() {
+  $('#profile-switcher-btn').addEventListener('click', () => {
+    showProfilePicker({ forced: false });
+  });
+}

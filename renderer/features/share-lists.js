@@ -550,3 +550,43 @@ async function deleteShareListEntry(id) {
   showToast('Lista eliminada', 'error');
 }
 
+
+function bindShareListEvents() {
+  $('#btn-new-share-list').addEventListener('click', openShareConfigModal);
+  $('#share-config-close').addEventListener('click', closeShareConfigModal);
+  $('#share-config-cancel').addEventListener('click', closeShareConfigModal);
+  $('#share-config-overlay').addEventListener('click', (e) => {
+    if (e.target.id === 'share-config-overlay') closeShareConfigModal();
+  });
+  $('#share-type-chips').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    const type = chip.dataset.type;
+    if (shareTypeSelection.has(type)) {
+      if (shareTypeSelection.size === 1) return;
+      shareTypeSelection.delete(type);
+      chip.classList.remove('selected');
+    } else {
+      shareTypeSelection.add(type);
+      chip.classList.add('selected');
+    }
+  });
+  $('#share-generate-preview').addEventListener('click', generateSharePreview);
+  $('#share-shuffle-preview').addEventListener('click', generateSharePreview);
+  $('#share-download-btn').addEventListener('click', downloadShareImage);
+  $('#share-mode-chips').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip');
+    if (!chip) return;
+    setShareMode(chip.dataset.mode);
+  });
+  $('#share-manual-search-input').addEventListener('input', (e) => {
+    clearTimeout(shareSearchTimer);
+    const query = e.target.value.trim();
+    if (!query) {
+      $('#share-manual-search-results').innerHTML = '';
+      $('#share-manual-search-hint').textContent = '';
+      return;
+    }
+    shareSearchTimer = setTimeout(() => runShareManualSearch(query), 400);
+  });
+}

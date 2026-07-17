@@ -142,3 +142,12 @@ function renderRecommendationsSection() {
   });
 }
 
+
+function bindRecommendationsEvents() {
+  $('#btn-refresh-recs').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.classList.add('spin-once');
+    await loadRecommendations();
+    setTimeout(() => btn.classList.remove('spin-once'), 500);
+  });
+}

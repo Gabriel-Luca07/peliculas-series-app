@@ -329,3 +329,21 @@ function renderUpcomingSection() {
   }).join('');
 }
 
+
+function bindDashboardEvents() {
+  $('#btn-pick').addEventListener('click', pickRandomPending);
+
+  $('#btn-wrapped').addEventListener('click', openWrappedModal);
+  $('#wrapped-close').addEventListener('click', closeWrappedModal);
+  $('#wrapped-overlay').addEventListener('click', (e) => {
+    if (e.target.id === 'wrapped-overlay') closeWrappedModal();
+  });
+  $('#wrapped-year').addEventListener('change', (e) => renderWrappedContent(e.target.value));
+
+  $('#btn-refresh-upcoming').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.classList.add('spin-once');
+    await loadUpcomingReleases(true);
+    setTimeout(() => btn.classList.remove('spin-once'), 500);
+  });
+}

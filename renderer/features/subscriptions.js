@@ -564,3 +564,164 @@ function renderEraChart(watched) {
   renderHistChart('#chart-eras', '#chart-eras-empty', values, decades.map((d) => `${d}s`));
 }
 
+
+function bindSubscriptionEvents() {
+  // If the app is left running (minimized/backgrounded) with the Suscripciones
+  // tab already open across a billing cycle boundary, switchView() won't fire
+  // again to trigger the refetch — catch that case when the window regains focus.
+  window.addEventListener('focus', async () => {
+    const activeSection = $('.view.active');
+    if (!activeSection || activeSection.id !== 'view-suscripciones') return;
+    subscriptions = await window.api.listSubscriptions();
+    subscriptionHistory = await window.api.listSubscriptionHistory();
+    renderSubscriptions();
+    renderSubscriptionHistory();
+    updateSubPlannerResult();
+  });
+
+  $('#subscriptions-grid').addEventListener('click', async (e) => {
+    const activateBtn = e.target.closest('.subscription-activate-btn');
+    const cancelBtn = e.target.closest('.subscription-cancel-btn');
+    const renewBtn = e.target.closest('.subscription-renew-btn');
+    const confirmBtn = e.target.closest('.subscription-confirm-btn');
+    const editBtn = e.target.closest('.subscription-edit-btn');
+
+    if (activateBtn) {
+      const card = activateBtn.closest('.subscription-card');
+      card.querySelector('.subscription-date-row').classList.remove('hidden');
+      activateBtn.classList.add('hidden');
+      return;
+    }
+    if (editBtn) {
+      const card = editBtn.closest('.subscription-card');
+      const dateRow = card.querySelector('.subscription-date-row');
+      const enteringEdit = dateRow.classList.contains('hidden');
+      dateRow.classList.toggle('hidden');
+      card.querySelector('.subscription-price-input').disabled = !enteringEdit;
+      card.querySelector('.subscription-cycle-input').disabled = !enteringEdit;
+      editBtn.textContent = enteringEdit ? 'Cerrar' : 'Editar';
+      return;
+    }
+    if (confirmBtn) {
+      const platform = confirmBtn.dataset.platform;
+      const card = confirmBtn.closest('.subscription-card');
+      const dateVal = card.querySelector('.subscription-date-input').value;
+      const cycleVal = Number(card.querySelector('.subscription-cycle-input').value);
+      if (!dateVal) return;
+      const ok = await activateSubscription(platform, dateVal, cycleVal);
+      if (ok) {
+        renderSubscriptions();
+        renderSubscriptionHistory();
+        updateSubPlannerResult();
+        showToast(`${platform} activada`);
+      }
+      return;
+    }
+    if (cancelBtn) {
+      const platform = cancelBtn.dataset.platform;
+      if (!confirm(`¿Cancelar la renovación de ${platform}? Seguirás teniendo acceso hasta que termine el ciclo que ya has pagado.`)) return;
+      const res = await window.api.cancelSubscription(platform);
+      subscriptions = res.subscriptions;
+      subscriptionHistory = res.history;
+      renderSubscriptions();
+      renderSubscriptionHistory();
+      updateSubPlannerResult();
+      showToast(`${platform}: no se renovará, pero conservas el acceso que ya pagaste`, 'error');
+      return;
+    }
+    if (renewBtn) {
+      const platform = renewBtn.dataset.platform;
+      const res = await window.api.renewSubscription(platform);
+      subscriptions = res.subscriptions;
+      subscriptionHistory = res.history;
+      renderSubscriptions();
+      renderSubscriptionHistory();
+      updateSubPlannerResult();
+      showToast(`${platform} volverá a renovarse`);
+    }
+  });
+
+  $('#subscriptions-grid').addEventListener('change', async (e) => {
+    // The date field is only meant to auto-save while editing an already-active
+    // subscription; for a not-yet-active one it's just part of the "Activar" form
+    // and only takes effect when "Confirmar" is clicked.
+    const dateInput = e.target.closest('.subscription-date-input');
+    if (dateInput) {
+      const card = dateInput.closest('.subscription-card');
+      if (card.classList.contains('active') && dateInput.value) {
+        const platform = card.dataset.platform;
+        const res = await window.api.upsertSubscription(platform, { startDate: dateInput.value });
+        if (res.error === 'OVERLAPS_EXISTING') {
+          showToast(subscriptionOverlapMessage(platform, res.conflict), 'error', { duration: 7000 });
+          dateInput.value = getSubscription(platform).startDate || dateInput.value;
+          return;
+        }
+        subscriptions = res.subscriptions;
+        subscriptionHistory = res.history;
+        updateSubscriptionStatusDisplay(platform);
+        renderSubscriptionHistory();
+        updateSubPlannerResult();
+      }
+      return;
+    }
+    const priceInput = e.target.closest('.subscription-price-input');
+    if (priceInput) {
+      const platform = priceInput.dataset.platform;
+      const parsed = Number(priceInput.value);
+      const price = priceInput.value !== '' && Number.isFinite(parsed) ? parsed : null;
+      if (price === null) priceInput.value = '';
+      const res = await window.api.upsertSubscription(platform, { price });
+      subscriptions = res.subscriptions;
+      subscriptionHistory = res.history;
+      renderSubscriptionHistory();
+      updateSubPlannerResult();
+      return;
+    }
+    const cycleInput = e.target.closest('.subscription-cycle-input');
+    if (cycleInput) {
+      const platform = cycleInput.dataset.platform;
+      const cycleDays = Number(cycleInput.value);
+      const res = await window.api.upsertSubscription(platform, { cycleDays });
+      if (res.error === 'OVERLAPS_EXISTING') {
+        showToast(subscriptionOverlapMessage(platform, res.conflict), 'error', { duration: 7000 });
+        cycleInput.value = getSubscription(platform).cycleDays || 30;
+        return;
+      }
+      subscriptions = res.subscriptions;
+      subscriptionHistory = res.history;
+      const cycleOpt = CYCLE_OPTIONS.find((o) => o.value === cycleDays);
+      updateSubscriptionStatusDisplay(platform);
+      renderSubscriptionHistory();
+      updateSubPlannerResult();
+      showToast(`${platform}: ciclo cambiado a ${cycleOpt ? cycleOpt.label.toLowerCase() : cycleDays + ' días'}`);
+    }
+  });
+
+  $('#subscriptions-grid').addEventListener('keydown', (e) => {
+    const priceInput = e.target.closest('.subscription-price-input');
+    if (!priceInput) return;
+    if (!isNumericKeydownAllowed(e, priceInput.value, true)) e.preventDefault();
+  });
+
+  $('#subscriptions-grid').addEventListener('input', (e) => {
+    const priceInput = e.target.closest('.subscription-price-input');
+    if (!priceInput) return;
+    const sanitized = sanitizeNumericValue(priceInput.value, true);
+    if (sanitized !== priceInput.value) priceInput.value = sanitized;
+  });
+
+  $('#sub-planner-platform').addEventListener('change', updateSubPlannerResult);
+  $('#sub-planner-result').addEventListener('click', async (e) => {
+    const btn = e.target.closest('#sub-planner-activate-btn');
+    if (!btn) return;
+    const platform = btn.dataset.platform;
+    const today = todayLocalDateString();
+    const ok = await activateSubscription(platform, today);
+    if (ok) {
+      renderSubscriptions();
+      renderSubscriptionHistory();
+      updateSubPlannerResult();
+      showToast(`${platform} activada`);
+    }
+  });
+}

@@ -94,3 +94,7 @@ async function emptyTrash() {
   showToast('Papelera vaciada', 'error');
 }
 
+
+function bindTrashEvents() {
+  $('#btn-empty-trash').addEventListener('click', emptyTrash);
+}

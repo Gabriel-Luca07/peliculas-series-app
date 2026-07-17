@@ -1,5 +1,7 @@
 # Películas y Series
 
+[![Tests](https://github.com/Gabriel-Luca07/peliculas-series-app/actions/workflows/test.yml/badge.svg)](https://github.com/Gabriel-Luca07/peliculas-series-app/actions/workflows/test.yml)
+
 Aplicación de escritorio para Windows que te ayuda a llevar el control de las películas y series que tienes pendientes de ver y de las que ya has visto: valoraciones, plataforma, progreso de temporadas/episodios, estadísticas de tu actividad y recomendaciones basadas en [The Movie Database (TMDB)](https://www.themoviedb.org/).
 
 Construida con [Electron](https://www.electronjs.org/) y JavaScript "vanilla" (sin frameworks de frontend), con todos los datos guardados localmente en tu propio ordenador.
@@ -238,6 +240,9 @@ uno por archivo de `lib/`.
 Si tocas algo de `lib/` (o de la lógica de suscripciones/fechas en general), ejecuta `npm test`
 antes de dar el cambio por bueno.
 
+**Se ejecutan solos en cada `push`/PR** vía GitHub Actions (`.github/workflows/test.yml`, ver el
+badge arriba del todo) — no dependen de que alguien se acuerde de correrlos a mano.
+
 ---
 
 ## Generar el instalador
@@ -258,6 +263,17 @@ ejecuta el instalador en un ordenador nuevo; es esperable y no indica ningún pr
 `npm run dist` también genera `release/latest.yml` (y un `.blockmap` junto al instalador). Si vas a
 publicar la Release en GitHub, **súbelos también** como assets además de los dos `.exe` — sin
 `latest.yml` la actualización automática no encuentra la versión nueva.
+
+**Los nombres de archivo importan para la actualización automática.** electron-builder escribe los
+`.exe`/`.blockmap` con espacios (`Peliculas y Series Setup X.X.X.exe`), pero `latest.yml` siempre
+los referencia con guiones (`Peliculas-y-Series-Setup-X.X.X.exe` — es el propio convenio interno de
+electron-builder). Si subes los archivos con espacios tal cual a una Release de GitHub, GitHub los
+renombra sustituyendo los espacios por **puntos** al subirlos — lo que no coincide con lo que espera
+`latest.yml`, y la actualización automática se queda descargando para siempre sin terminar nunca
+(esto llegó a pasar de verdad en la v1.9.0). Para evitarlo, `npm run dist` ejecuta automáticamente
+después (`postdist`, ver `scripts/rename-release-assets.js`) una copia de cada `.exe`/`.blockmap`
+con los espacios ya cambiados por guiones — **sube esos archivos con guiones** (y `latest.yml`) a la
+Release, no los que tienen espacios.
 
 ---
 
