@@ -13,6 +13,7 @@ Construida con [Electron](https://www.electronjs.org/) y JavaScript "vanilla" (s
 - [Instalación (como usuario)](#instalación-como-usuario)
 - [Cómo actualizar la app sin perder tus datos](#cómo-actualizar-la-app-sin-perder-tus-datos)
 - [Puesta en marcha (como desarrollador)](#puesta-en-marcha-como-desarrollador)
+- [Tests](#tests)
 - [Generar el instalador](#generar-el-instalador)
 - [Conectar con TMDB](#conectar-con-tmdb)
 - [Perfiles: varios usuarios en el mismo ordenador](#perfiles-varios-usuarios-en-el-mismo-ordenador)
@@ -121,6 +122,12 @@ PeliculasApp/
 │   ├── style.css               Estilos, temas, animaciones y diseño responsive.
 │   └── fonts/                  Tipografía Inter empaquetada localmente (funciona sin internet).
 │
+├── lib/                       Lógica compartida sin Electron ni DOM (fechas, ciclo de
+│                               suscripciones, importación CSV, validación de perfiles) — la
+│                               usan tanto main.js como renderer.js, y es lo que cubren los tests.
+│
+├── test/                      Tests automatizados (`npm test`), uno por archivo de `lib/`.
+│
 ├── build/
 │   ├── icon.ico                Icono de la app para Windows (varios tamaños).
 │   └── icon.png                 Icono en PNG (256×256).
@@ -208,6 +215,23 @@ npm start
 
 `npm start` abre la aplicación en modo desarrollo, cargando los archivos directamente desde disco
 (cualquier cambio en `renderer/` se refleja al recargar la ventana con Ctrl+R).
+
+---
+
+## Tests
+
+```bash
+npm test
+```
+
+La lógica más delicada (fechas y "hoy" en hora local, ciclo de suscripciones — auto-renovación,
+solapes, días restantes —, importación de CSV y validación de perfiles) está separada en `lib/`,
+sin nada de Electron ni de DOM, para poder testearla de forma aislada. Se ejecuta con el propio
+test runner de Node (`node --test`), sin añadir ninguna librería nueva. Los tests viven en `test/`,
+uno por archivo de `lib/`.
+
+Si tocas algo de `lib/` (o de la lógica de suscripciones/fechas en general), ejecuta `npm test`
+antes de dar el cambio por bueno.
 
 ---
 

@@ -3,6 +3,9 @@ const path = require('path');
 const fs = require('fs/promises');
 const crypto = require('crypto');
 const { autoUpdater } = require('electron-updater');
+const { todayLocalDateString } = require('./lib/date-utils');
+const { findOverlappingHistoryEntry, reconcileSubscriptionEntry } = require('./lib/subscription-logic');
+const { isValidProfileColor, sanitizeProfileInitial } = require('./lib/profile-utils');
 
 const dataDir = app.getPath('userData');
 const profilesFile = path.join(dataDir, 'profiles.json');
@@ -31,14 +34,6 @@ const DEFAULT_PROFILE_SETTINGS = {
 };
 
 const ALLOWED_AVATAR_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
-
-function isValidProfileColor(color) {
-  return typeof color === 'string' && (/^series-[1-8]$/.test(color) || /^#[0-9a-fA-F]{6}$/.test(color));
-}
-
-function sanitizeProfileInitial(initial) {
-  return (initial || '').trim().slice(0, 2) || null;
-}
 
 async function readJson(file, fallback) {
   try {
@@ -852,115 +847,8 @@ ipcMain.handle('shareLists:openImage', async (_event, id) => {
   return { ok: true };
 });
 
-function daysElapsedSince(dateStr) {
-  return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
-}
-
-// `new Date().toISOString().slice(0, 10)` reads the UTC calendar date, which is
-// wrong for "today" in any timezone ahead of UTC (e.g. Spain) for a window right
-// after local midnight, and in any timezone behind UTC for a window before local
-// midnight — the UTC day can be a day off from the user's actual local day.
-function todayLocalDateString() {
-  const now = new Date();
-  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-}
-
-function addDaysToDateString(dateStr, days) {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-const MAX_AUTO_RENEWALS_PER_LOAD = 500;
-
 function defaultSubscriptionEntry(platform) {
   return { platform, price: null, active: false, startDate: null, cycleDays: 30, willRenew: true, historyId: null };
-}
-
-function dateRangesOverlap(startA, endA, startB, endB) {
-  return startA < endB && startB < endA;
-}
-
-// A platform can't really be billed twice for the same real-world period, so
-// activating (or editing the date/cycle of) a subscription is blocked if the
-// resulting period would overlap an existing history record for that same
-// platform — e.g. paying for HBO annually Jan 2025 - Jan 2026, then trying to
-// also add a monthly HBO period starting in the middle of that. `excludeId` lets
-// the entry's own currently-linked history record be excluded when re-checking
-// after an edit (it's being moved, not conflicting with itself).
-function findOverlappingHistoryEntry(history, platform, startDate, cycleDays, excludeId) {
-  const endDate = addDaysToDateString(startDate, cycleDays);
-  return history.find((h) => (
-    h.platform === platform
-    && h.id !== excludeId
-    && dateRangesOverlap(startDate, endDate, h.startDate, addDaysToDateString(h.startDate, h.cycleDays || 30))
-  ));
-}
-
-// Rolls a single subscription entry through any elapsed cycles (creating one new
-// history entry per cycle, same as real recurring billing) and/or backfills a
-// missing historyId, mutating `entry` and `history` in place. Returns true if
-// anything changed, so callers know whether a write is needed. Shared by
-// subscriptions:list (checks everything on load), subscriptions:activate (so
-// activating with a start date that's already more than one cycle in the past
-// catches up immediately instead of showing a stale "renueva hoy" with no
-// corresponding charge until the next reload), and subscriptions:upsert (so
-// editing the start date/cycle of an active subscription into the past does
-// the same).
-function reconcileSubscriptionEntry(entry, history) {
-  let changed = false;
-  // Backfill first, before the roll-forward loop below: subscriptions activated
-  // before "Historial de gasto" existed (or otherwise missing their link) would
-  // never show up there. If this ran after the loop instead, one that already ran
-  // past its cycle by the time this runs would get expired (its historyId wiped)
-  // before ever being backfilled, and its whole billing period would vanish
-  // without a trace instead of just aging into "finished".
-  if (entry.active && entry.startDate && !entry.historyId) {
-    const historyEntry = {
-      id: crypto.randomUUID(),
-      platform: entry.platform,
-      price: entry.price,
-      cycleDays: entry.cycleDays || 30,
-      startDate: entry.startDate,
-      cancelledAt: entry.willRenew === false ? todayLocalDateString() : null,
-    };
-    history.unshift(historyEntry);
-    entry.historyId = historyEntry.id;
-    changed = true;
-  }
-  // A subscription you never cancelled keeps getting charged in real life, so
-  // as long as willRenew isn't explicitly false, each elapsed cycle rolls it
-  // forward into a brand new history entry (a new charge) instead of just going
-  // back to "Sin activar" — this also catches up on however many cycles passed
-  // since it was last checked. Only a cancelled one (willRenew === false)
-  // actually deactivates once its paid-for cycle ends.
-  const cycle = entry.cycleDays || 30;
-  let renewals = 0;
-  while (entry.active && entry.startDate && daysElapsedSince(entry.startDate) >= cycle && renewals < MAX_AUTO_RENEWALS_PER_LOAD) {
-    renewals += 1;
-    if (entry.willRenew === false) {
-      entry.active = false;
-      entry.startDate = null;
-      entry.willRenew = true;
-      entry.historyId = null;
-      changed = true;
-      break;
-    }
-    const newStartDate = addDaysToDateString(entry.startDate, cycle);
-    const historyEntry = {
-      id: crypto.randomUUID(),
-      platform: entry.platform,
-      price: entry.price,
-      cycleDays: cycle,
-      startDate: newStartDate,
-      cancelledAt: null,
-    };
-    history.unshift(historyEntry);
-    entry.startDate = newStartDate;
-    entry.historyId = historyEntry.id;
-    changed = true;
-  }
-  return changed;
 }
 
 ipcMain.handle('subscriptions:list', async () => {

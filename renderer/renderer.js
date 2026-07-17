@@ -78,23 +78,9 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
-// `new Date().toISOString().slice(0, 10)` reads the UTC calendar date, which is
-// wrong for "today" in any timezone ahead of UTC (e.g. Spain) for a window right
-// after local midnight, and in any timezone behind UTC for a window before local
-// midnight — the UTC day can be a day off from the user's actual local day.
-function localDateStringAt(ms) {
-  const offsetMs = new Date(ms).getTimezoneOffset() * 60000;
-  return new Date(ms - offsetMs).toISOString().slice(0, 10);
-}
-function todayLocalDateString() {
-  return localDateStringAt(Date.now());
-}
-
-function escapeHtml(str) {
-  return String(str).replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-  }[c]));
-}
+// localDateStringAt, todayLocalDateString (lib/date-utils.js), escapeHtml
+// (lib/html-utils.js) are loaded as global <script>s in index.html before this
+// file, so they're already available here.
 
 function pluralize(n, singular, plural) {
   return n === 1 ? singular : (plural || `${singular}s`);
@@ -1771,14 +1757,8 @@ function getSubscription(platform) {
     || { platform, price: null, active: false, startDate: null, cycleDays: 30, willRenew: true, historyId: null };
 }
 
-function subscriptionDaysRemaining(sub) {
-  if (!sub.active || !sub.startDate) return null;
-  const cycle = sub.cycleDays || 30;
-  const start = new Date(sub.startDate);
-  const elapsedDays = Math.floor((Date.now() - start.getTime()) / 86400000);
-  if (!Number.isFinite(elapsedDays)) return null;
-  return Math.min(Math.max(cycle - elapsedDays, 0), cycle);
-}
+// subscriptionDaysRemaining is defined in lib/subscription-logic.js (loaded as
+// a global <script> before this file).
 
 function resolveProviderLogo(platform) {
   if (providerLogos[platform]) return providerLogos[platform];
@@ -1912,11 +1892,8 @@ function updateSubscriptionStatusDisplay(platform) {
   }
 }
 
-function addDaysToDateString(dateStr, days) {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
+// addDaysToDateString is defined in lib/date-utils.js (loaded as a global
+// <script> before this file).
 
 // Each history entry represents one full billing period you paid for, so its
 // cost is simply the price you had saved — no proration by elapsed days, since
@@ -1926,10 +1903,7 @@ function subscriptionHistoryCost(entry) {
 }
 
 function subscriptionHistoryEntryStatus(entry) {
-  const isOngoing = subscriptions.some((s) => s.historyId === entry.id && s.active);
-  const plannedEnd = addDaysToDateString(entry.startDate, entry.cycleDays || 30);
-  if (!isOngoing) return { kind: 'finished', plannedEnd };
-  return entry.cancelledAt ? { kind: 'cancelled-active', plannedEnd } : { kind: 'active', plannedEnd };
+  return getHistoryEntryStatus(entry, subscriptions);
 }
 
 function renderSubHistoryBreakdown() {
@@ -4107,11 +4081,8 @@ function csvPlatformValue() {
   return select;
 }
 
-function extractSeriesTitle(rawTitle) {
-  const m = rawTitle.match(/^(.*?):\s*(Season|Temporada)\s+\d+/i);
-  if (m) return { title: m[1].trim(), type: 'serie' };
-  return null;
-}
+// extractSeriesTitle is defined in lib/csv-import-utils.js (loaded as a global
+// <script> before this file).
 
 async function applyCsvImport() {
   if (!csvParsed) return;
@@ -4134,7 +4105,7 @@ async function applyCsvImport() {
     return seriesMatch || { title: raw, type: defaultType };
   };
 
-  const existingTitles = new Map(movies.map((m) => [`${m.type || 'pelicula'}::${m.title.trim().toLowerCase()}`, m]));
+  const existingTitles = new Map(movies.map((m) => [buildMovieKey(m.type, m.title), m]));
   const countedKeys = new Set();
   let toUpdate = 0;
   let toAdd = 0;
@@ -4142,7 +4113,7 @@ async function applyCsvImport() {
   csvParsed.rows.forEach((row) => {
     const parsed = parseRow(row);
     if (!parsed) { skipped += 1; return; }
-    const key = `${parsed.type}::${parsed.title.toLowerCase()}`;
+    const key = buildMovieKey(parsed.type, parsed.title);
     if (existingTitles.has(key) || countedKeys.has(key)) toUpdate += 1;
     else { toAdd += 1; countedKeys.add(key); }
   });

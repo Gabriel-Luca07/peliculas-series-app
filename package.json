@@ -6,6 +6,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
+    "test": "node --test",
     "dist": "electron-builder"
   },
   "devDependencies": {
@@ -21,6 +22,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "lib/**/*",
       "renderer/**/*"
     ],
     "win": {
