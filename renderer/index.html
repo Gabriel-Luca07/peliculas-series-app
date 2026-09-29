@@ -178,17 +178,17 @@
         <div class="toolbar">
           <div class="search-box">
             <svg class="icon"><use href="#icon-search"></use></svg>
-            <input id="search-pendientes" placeholder="Buscar por título...">
+            <input id="search-pendientes" placeholder="Buscar por título..." aria-label="Buscar en Pendientes">
           </div>
-          <select id="filter-type">
+          <select id="filter-type" aria-label="Tipo">
             <option value="">Películas y series</option>
             <option value="pelicula">Solo películas</option>
             <option value="serie">Solo series</option>
           </select>
-          <select id="filter-platform"></select>
-          <select id="filter-genre"></select>
-          <select id="filter-tag" class="hidden"></select>
-          <select id="sort-pendientes">
+          <select id="filter-platform" aria-label="Plataforma"></select>
+          <select id="filter-genre" aria-label="Género"></select>
+          <select id="filter-tag" class="hidden" aria-label="Etiqueta"></select>
+          <select id="sort-pendientes" aria-label="Ordenar">
             <option value="added-desc">Añadidas recientemente</option>
             <option value="added-asc">Añadidas hace más tiempo</option>
             <option value="title-asc">Título (A-Z)</option>
@@ -222,7 +222,7 @@
         <div class="toolbar">
           <div class="search-box">
             <svg class="icon"><use href="#icon-search"></use></svg>
-            <input id="search-viendo" placeholder="Buscar por título...">
+            <input id="search-viendo" placeholder="Buscar por título..." aria-label="Buscar en Viendo">
           </div>
         </div>
       </div>
@@ -244,17 +244,17 @@
         <div class="toolbar">
           <div class="search-box">
             <svg class="icon"><use href="#icon-search"></use></svg>
-            <input id="search-vistas" placeholder="Buscar por título...">
+            <input id="search-vistas" placeholder="Buscar por título..." aria-label="Buscar en Vistas">
           </div>
-          <select id="filter-type-vistas">
+          <select id="filter-type-vistas" aria-label="Tipo">
             <option value="">Películas y series</option>
             <option value="pelicula">Solo películas</option>
             <option value="serie">Solo series</option>
           </select>
-          <select id="filter-platform-vistas"></select>
-          <select id="filter-genre-vistas"></select>
-          <select id="filter-tag-vistas" class="hidden"></select>
-          <select id="filter-rating-min">
+          <select id="filter-platform-vistas" aria-label="Plataforma"></select>
+          <select id="filter-genre-vistas" aria-label="Género"></select>
+          <select id="filter-tag-vistas" class="hidden" aria-label="Etiqueta"></select>
+          <select id="filter-rating-min" aria-label="Valoración mínima">
             <option value="">Cualquier valoración</option>
             <option value="9">9 o más</option>
             <option value="8">8 o más</option>
@@ -262,7 +262,7 @@
             <option value="6">6 o más</option>
             <option value="5">5 o más</option>
           </select>
-          <select id="sort-vistas">
+          <select id="sort-vistas" aria-label="Ordenar">
             <option value="date-desc">Más recientes primero</option>
             <option value="date-asc">Más antiguas primero</option>
             <option value="rating-desc">Mejor valoradas</option>
@@ -475,6 +475,16 @@
             </span>
           </label>
 
+          <label for="pref-notify-mode">Avisos de Windows</label>
+          <select id="pref-notify-mode">
+            <option value="instant">Al momento, uno por novedad</option>
+            <option value="digest">Un resumen al día</option>
+          </select>
+          <div id="pref-notify-hour-field" class="hidden">
+            <label for="pref-notify-hour">Hora del resumen</label>
+            <select id="pref-notify-hour"></select>
+          </div>
+
           <label class="switch-row">
             <span>Avisos de Windows con novedades de lo que has visto</span>
             <span class="switch">
@@ -590,8 +600,23 @@
           <p class="help">Añade o quita plataformas de las listas desplegables de toda la app.</p>
           <div id="platforms-list" class="platforms-list"></div>
           <div class="platform-add-row">
-            <input id="new-platform-input" placeholder="Nueva plataforma...">
+            <input id="new-platform-input" placeholder="Nueva plataforma..." aria-label="Nueva plataforma">
             <button id="btn-add-platform" class="btn">Añadir</button>
+          </div>
+        </div>
+
+        <div class="settings-box">
+          <h2>Carpeta de datos</h2>
+          <p class="help">Para usar tus listas en varios ordenadores, guárdalas en una carpeta que se sincronice entre
+            ellos (OneDrive, Google Drive, Dropbox...) y elige esa misma carpeta en cada ordenador. Si en los dos se cambia
+            algo a la vez, se juntan los cambios título a título. La clave de TMDB y lo de la bandeja del sistema son de
+            cada ordenador: en el otro tendrás que pegar la clave una vez.</p>
+          <label>Tus datos se guardan en</label>
+          <p id="data-location-path" class="data-location-path"></p>
+          <p id="data-location-missing" class="status error hidden" role="alert"></p>
+          <div class="settings-actions">
+            <button id="btn-data-location-pick" class="btn">Cambiar carpeta...</button>
+            <button id="btn-data-location-reset" class="btn hidden">Guardar solo en este ordenador</button>
           </div>
         </div>
 
@@ -677,11 +702,18 @@
           <p class="help">Películas y Series <span id="app-version"></span></p>
           <button type="button" id="btn-check-updates" class="btn">Buscar actualizaciones</button>
           <button type="button" id="btn-view-update-notes" class="btn hidden">Ver novedades</button>
+          <button type="button" id="btn-whats-new" class="btn">Qué hay de nuevo en esta versión</button>
           <button type="button" id="btn-restart-update" class="btn primary hidden">Reiniciar e instalar</button>
           <p id="update-status" class="status"></p>
           <label>Atajos de teclado</label>
           <ul class="shortcuts-list">
             <li><span class="kbd">Ctrl+K</span> Buscar en toda tu colección</li>
+            <li><span class="kbd">N</span> Añadir un título</li>
+            <li><span class="kbd">/</span> Buscar en la lista que estás viendo</li>
+            <li><span class="kbd">Alt+1…9</span> Ir a cada apartado del menú</li>
+            <li><span class="kbd">Tab</span> y <span class="kbd">flechas</span> Moverte por las tarjetas</li>
+            <li><span class="kbd">Intro</span> Abrir la tarjeta seleccionada</li>
+            <li><span class="kbd">V</span> Marcarla como vista · <span class="kbd">E</span> +1 episodio · <span class="kbd">R</span> Volver a verla</li>
             <li><span class="kbd">Esc</span> Cerrar la ventana activa</li>
           </ul>
         </div>
@@ -692,12 +724,12 @@
 
   <div id="modal-overlay" class="overlay hidden">
     <div class="modal">
-      <button class="icon-btn close-btn" id="modal-close"><svg class="icon"><use href="#icon-x"></use></svg></button>
+      <button class="icon-btn close-btn" id="modal-close" aria-label="Cerrar"><svg class="icon"><use href="#icon-x"></use></svg></button>
       <h2 id="modal-title">Añadir título</h2>
 
       <div class="search-row">
         <svg class="icon"><use href="#icon-search"></use></svg>
-        <input id="search-input" placeholder="Busca un título en TMDB...">
+        <input id="search-input" placeholder="Busca un título en TMDB..." aria-label="Buscar en TMDB">
       </div>
       <p id="search-hint" class="hint"></p>
       <div id="search-results" class="search-results"></div>
@@ -802,7 +834,7 @@
 
   <div id="bulk-overlay" class="overlay hidden">
     <div class="modal">
-      <button class="icon-btn close-btn" id="bulk-close"><svg class="icon"><use href="#icon-x"></use></svg></button>
+      <button class="icon-btn close-btn" id="bulk-close" aria-label="Cerrar"><svg class="icon"><use href="#icon-x"></use></svg></button>
       <h2>Añadir varias vistas de golpe</h2>
       <p class="hint">
         Para cuando no recuerdas bien el detalle: escribe o pega un título por línea. No hace falta año,
@@ -837,8 +869,8 @@
     <div class="modal global-search-modal">
       <div class="search-row">
         <svg class="icon"><use href="#icon-search"></use></svg>
-        <input id="global-search-input" placeholder="Busca en toda tu colección...">
-        <button class="icon-btn close-btn-inline" id="global-search-close"><svg class="icon"><use href="#icon-x"></use></svg></button>
+        <input id="global-search-input" placeholder="Busca en toda tu colección..." aria-label="Buscar en toda tu colección">
+        <button class="icon-btn close-btn-inline" id="global-search-close" aria-label="Cerrar"><svg class="icon"><use href="#icon-x"></use></svg></button>
       </div>
       <div id="global-search-results" class="global-search-results"></div>
       <p id="global-search-empty" class="empty hidden">Sin resultados.</p>
@@ -847,7 +879,7 @@
 
   <div id="wrapped-overlay" class="overlay hidden">
     <div class="modal wrapped-modal">
-      <button class="icon-btn close-btn" id="wrapped-close"><svg class="icon"><use href="#icon-x"></use></svg></button>
+      <button class="icon-btn close-btn" id="wrapped-close" aria-label="Cerrar"><svg class="icon"><use href="#icon-x"></use></svg></button>
       <div class="wrapped-header">
         <h2><svg class="icon"><use href="#icon-gift"></use></svg> Tu resumen anual</h2>
         <select id="wrapped-year"></select>
@@ -858,8 +890,8 @@
 
   <div id="update-notes-overlay" class="overlay hidden">
     <div class="modal update-notes-modal">
-      <button class="icon-btn close-btn" id="update-notes-close"><svg class="icon"><use href="#icon-x"></use></svg></button>
-      <h2>Novedades de la versión <span id="update-notes-version"></span></h2>
+      <button class="icon-btn close-btn" id="update-notes-close" aria-label="Cerrar"><svg class="icon"><use href="#icon-x"></use></svg></button>
+      <h2 id="update-notes-heading">Novedades de la versión <span id="update-notes-version"></span></h2>
       <div id="update-notes-body" class="update-notes-body"></div>
       <div class="update-notes-actions">
         <button type="button" id="update-notes-later" class="btn">Más tarde</button>
@@ -870,7 +902,7 @@
 
   <div id="profile-overlay" class="overlay hidden">
     <div class="modal profile-modal">
-      <button class="icon-btn close-btn hidden" id="profile-close-btn"><svg class="icon"><use href="#icon-x"></use></svg></button>
+      <button class="icon-btn close-btn hidden" id="profile-close-btn" aria-label="Cerrar"><svg class="icon"><use href="#icon-x"></use></svg></button>
       <h2>¿Quién ve ahora?</h2>
       <div id="profile-grid" class="profile-grid"></div>
       <div class="profile-modal-actions">
@@ -920,7 +952,7 @@
 
   <div id="share-config-overlay" class="overlay hidden">
     <div class="modal share-config-modal">
-      <button class="icon-btn close-btn" id="share-config-close"><svg class="icon"><use href="#icon-x"></use></svg></button>
+      <button class="icon-btn close-btn" id="share-config-close" aria-label="Cerrar"><svg class="icon"><use href="#icon-x"></use></svg></button>
       <h2>Nueva lista de recomendaciones</h2>
 
       <div class="share-config-body">
@@ -1006,7 +1038,7 @@
     </div>
   </div>
 
-  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+  <div id="toast-container" class="toast-container" role="status" aria-live="polite"></div>
 </div>
 <script src="../lib/date-utils.js"></script>
 <script src="../lib/subscription-logic.js"></script>
@@ -1019,6 +1051,10 @@
 <script src="../lib/subscription-planner.js"></script>
 <script src="../lib/pool-logic.js"></script>
 <script src="../lib/calendar-ics.js"></script>
+<script src="../lib/markdown-lite.js"></script>
+<script src="../lib/notify-logic.js"></script>
+<script src="../lib/grid-nav.js"></script>
+<script src="../lib/sync-merge.js"></script>
 <script src="../lib/followups-logic.js"></script>
 <script src="../lib/progress-logic.js"></script>
 <script src="features/updater.js"></script>
@@ -1026,6 +1062,9 @@
 <script src="features/appearance-settings.js"></script>
 <script src="features/ui-chrome.js"></script>
 <script src="features/tmdb-cache.js"></script>
+<script src="features/notifications.js"></script>
+<script src="features/accessibility.js"></script>
+<script src="features/data-location.js"></script>
 <script src="features/charts.js"></script>
 <script src="features/dashboard.js"></script>
 <script src="features/recommendations.js"></script>

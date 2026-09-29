@@ -38,7 +38,7 @@ function syncGenrePanel() {
     </label>
   `).join('') + `
     <div class="genre-custom-add">
-      <input type="text" id="genre-custom-input" placeholder="Añadir otro género...">
+      <input type="text" id="genre-custom-input" placeholder="Añadir otro género..." aria-label="Añadir otro género">
       <button type="button" class="icon-btn" id="genre-custom-add-btn" title="Añadir"><svg class="icon"><use href="#icon-plus"></use></svg></button>
     </div>
   `;

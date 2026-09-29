@@ -31,11 +31,6 @@ function writeStoredJson(key, value) {
   localStorage.setItem(pk(key), JSON.stringify(value));
 }
 
-// Windows notification body: at most three lines plus "...y N más".
-function notificationBody(lines) {
-  return lines.length > 3 ? `${lines.slice(0, 3).join('\n')}\n...y ${lines.length - 3} más` : lines.join('\n');
-}
-
 function isPrefOn(key) {
   return localStorage.getItem(pk(key)) !== 'false';
 }
@@ -164,6 +159,7 @@ async function loadFollowups(force = false) {
 }
 
 function startFollowupsAutoRefresh() {
+  startDigestTimer();
   setInterval(() => {
     loadFollowups();
     loadUpcomingReleases();
@@ -234,7 +230,7 @@ function notifyAvailability(fresh, switchedIds) {
   const title = fresh.length === 1
     ? 'Un pendiente ya está en tus plataformas'
     : `${fresh.length} pendientes ya están en tus plataformas`;
-  window.api.notify(title, notificationBody(lines), 'novedades');
+  deliverNotification({ title, lines, view: 'novedades', movieId: fresh.length === 1 ? fresh[0].movieId : null });
 }
 
 // After activating (or losing) a subscription: look up whatever availability
@@ -309,7 +305,7 @@ function computeNewEpisodes() {
   movies.filter((m) => m.status === 'viendo' && m.type === 'serie' && m.tmdbId).forEach((m) => {
     const ep = recentUnwatchedEpisode(m, cache[`tv:${m.tmdbId}`], today);
     if (!ep) return;
-    items.push({ key: `ep:${m.tmdbId}:${ep.seasonNumber}:${ep.episodeNumber}`, state: 'released', title: m.title, episode: ep });
+    items.push({ key: `ep:${m.tmdbId}:${ep.seasonNumber}:${ep.episodeNumber}`, state: 'released', movieId: m.id, title: m.title, episode: ep });
   });
   return items;
 }
@@ -324,7 +320,7 @@ function notifyNewEpisodes() {
   if (!toNotify.length || !isPrefOn('pref-episodes-notify')) return;
   const lines = toNotify.map((i) => `${i.title}: T${i.episode.seasonNumber} · E${i.episode.episodeNumber} ya disponible`);
   const title = toNotify.length === 1 ? 'Episodio nuevo de lo que estás viendo' : `${toNotify.length} episodios nuevos de lo que estás viendo`;
-  window.api.notify(title, notificationBody(lines), 'viendo');
+  deliverNotification({ title, lines, view: 'viendo', movieId: toNotify.length === 1 ? toNotify[0].movieId : null });
 }
 
 /* ---------- Notificaciones ---------- */
@@ -358,7 +354,8 @@ function notifyNewFollowups() {
 
   const lines = toNotify.map(followupNotificationLine);
   const title = toNotify.length === 1 ? 'Novedad de algo que has visto' : `${toNotify.length} novedades de lo que has visto`;
-  window.api.notify(title, notificationBody(lines), 'novedades');
+  // Sequels aren't in the list yet: only a new season names a title to open.
+  deliverNotification({ title, lines, view: 'novedades', movieId: toNotify.length === 1 ? toNotify[0].movieId || null : null });
 }
 
 function formatFollowupDate(date) {

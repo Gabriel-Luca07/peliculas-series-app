@@ -12,19 +12,63 @@ function refreshUpdateNotesButton() {
   if (btn) btn.classList.toggle('hidden', !(pendingUpdateInfo && pendingUpdateInfo.releaseNotes));
 }
 
+// GitHub hands electron-updater the notes as HTML; turn that back into the
+// Markdown-ish text markdownToHtml (lib/markdown-lite.js) renders safely.
+// DOMParser only parses: nothing in it runs or loads.
+function htmlNotesToMarkdown(html) {
+  const marked = String(html)
+    .replace(/<h[1-6][^>]*>/gi, '\n## ')
+    .replace(/<li[^>]*>/gi, '\n- ')
+    .replace(/<\/(p|h[1-6]|ul|ol)>/gi, '\n\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<(strong|b)>/gi, '**')
+    .replace(/<\/(strong|b)>/gi, '**');
+  return new DOMParser().parseFromString(marked, 'text/html').body.textContent;
+}
+
 function renderUpdateNotesBody(notes) {
   if (!notes) return '<p class="help">No hay notas de esta versión disponibles.</p>';
-  return `<pre class="update-notes-text">${escapeHtml(notes)}</pre>`;
+  const markdown = /<[a-z][^>]*>/i.test(notes) ? htmlNotesToMarkdown(notes) : notes;
+  return `<div class="update-notes-text">${markdownToHtml(markdown)}</div>`;
+}
+
+// mode 'update': a new version is downloading/downloaded (offers to restart).
+// mode 'installed': what changed in the version already running.
+function showNotesModal({ version, notes, mode }) {
+  $('#update-notes-heading').firstChild.textContent = mode === 'installed' ? 'Qué hay de nuevo en la versión ' : 'Novedades de la versión ';
+  $('#update-notes-version').textContent = version || '';
+  $('#update-notes-body').innerHTML = renderUpdateNotesBody(notes);
+  const installBtn = $('#update-notes-install');
+  installBtn.classList.toggle('hidden', mode === 'installed');
+  installBtn.disabled = !updateReadyToInstall;
+  installBtn.textContent = updateReadyToInstall ? 'Reiniciar ahora' : 'Descargando...';
+  $('#update-notes-later').textContent = mode === 'installed' ? 'Cerrar' : 'Más tarde';
+  showOverlay($('#update-notes-overlay'));
 }
 
 function openUpdateNotesModal() {
   if (!pendingUpdateInfo) return;
-  $('#update-notes-version').textContent = pendingUpdateInfo.version || '';
-  $('#update-notes-body').innerHTML = renderUpdateNotesBody(pendingUpdateInfo.releaseNotes);
-  const installBtn = $('#update-notes-install');
-  installBtn.disabled = !updateReadyToInstall;
-  installBtn.textContent = updateReadyToInstall ? 'Reiniciar ahora' : 'Descargando...';
-  showOverlay($('#update-notes-overlay'));
+  showNotesModal({ version: pendingUpdateInfo.version, notes: pendingUpdateInfo.releaseNotes, mode: 'update' });
+}
+
+async function openInstalledNotes() {
+  const version = await window.api.getAppVersion();
+  showNotesModal({ version, notes: await window.api.getReleaseNotes(version), mode: 'installed' });
+}
+
+// The first time a new version opens, show what changed in it (once per
+// computer, not per profile). A brand-new install with nothing in it yet
+// just records the version.
+async function showWhatsNewIfUpdated() {
+  const version = await window.api.getAppVersion();
+  let lastSeen = null;
+  try { lastSeen = localStorage.getItem('app-last-seen-version'); } catch { /* storage unavailable */ }
+  if (lastSeen === version) return;
+  try { localStorage.setItem('app-last-seen-version', version); } catch { /* storage unavailable */ }
+  const freshInstall = lastSeen === null && !movies.length && allProfiles.length <= 1;
+  if (freshInstall) return;
+  const notes = await window.api.getReleaseNotes(version);
+  if (notes) showNotesModal({ version, notes, mode: 'installed' });
 }
 
 function closeUpdateNotesModal() {
@@ -80,6 +124,7 @@ function bindUpdaterEvents() {
   });
 
   $('#btn-view-update-notes').addEventListener('click', openUpdateNotesModal);
+  $('#btn-whats-new').addEventListener('click', openInstalledNotes);
   $('#btn-restart-update').addEventListener('click', () => window.api.installUpdate());
   $('#update-notes-close').addEventListener('click', closeUpdateNotesModal);
   $('#update-notes-later').addEventListener('click', closeUpdateNotesModal);

@@ -27,7 +27,8 @@
       "lib/**/*",
       "renderer/**/*",
       "build/icon.png",
-      "build/icon.ico"
+      "build/icon.ico",
+      "release-notes/*.md"
     ],
     "win": {
       "target": [

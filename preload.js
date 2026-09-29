@@ -44,8 +44,15 @@ contextBridge.exposeInMainWorld('api', {
   openDataFolder: () => ipcRenderer.invoke('app:openDataFolder'),
   openBackupsFolder: () => ipcRenderer.invoke('app:openBackupsFolder'),
   runBackupNow: () => ipcRenderer.invoke('app:runBackupNow'),
+  getDataLocation: () => ipcRenderer.invoke('data:getLocation'),
+  pickDataLocation: () => ipcRenderer.invoke('data:pickLocation'),
+  inspectDataLocation: (picked) => ipcRenderer.invoke('data:inspectLocation', picked),
+  setDataLocation: (picked, mode) => ipcRenderer.invoke('data:setLocation', picked, mode),
+  resetDataLocation: () => ipcRenderer.invoke('data:resetLocation'),
+  reloadIfChanged: () => ipcRenderer.invoke('data:reloadIfChanged'),
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
-  notify: (title, body, view) => ipcRenderer.invoke('app:notify', title, body, view),
+  getReleaseNotes: (version) => ipcRenderer.invoke('app:getReleaseNotes', version),
+  notify: (title, body, view, movieId) => ipcRenderer.invoke('app:notify', title, body, view, movieId),
   getBackgroundSettings: () => ipcRenderer.invoke('app:getBackgroundSettings'),
   setBackgroundSettings: (patch) => ipcRenderer.invoke('app:setBackgroundSettings', patch),
   consumeHiddenStart: () => ipcRenderer.invoke('app:consumeHiddenStart'),
@@ -56,7 +63,7 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('app:checkNow', handler);
   },
   onNavigate: (callback) => {
-    const handler = (_event, view) => callback(view);
+    const handler = (_event, target) => callback(target);
     ipcRenderer.on('app:navigate', handler);
     return () => ipcRenderer.removeListener('app:navigate', handler);
   },

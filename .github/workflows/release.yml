@@ -3,7 +3,7 @@ name: Release
 # Pushing a tag like v1.10.0 builds the Windows installer and the portable
 # version on GitHub's own machines and publishes them as a GitHub Release, so
 # releasing no longer depends on the tools installed on one computer.
-# Release notes come from .github/release-notes/<tag>.md when that file
+# Release notes come from release-notes/<tag>.md when that file
 # exists (they're what the app shows in "Ver novedades"); otherwise GitHub
 # generates them from the commits.
 
@@ -53,7 +53,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           version="${GITHUB_REF_NAME#v}"
-          notes=".github/release-notes/${GITHUB_REF_NAME}.md"
+          notes="release-notes/${GITHUB_REF_NAME}.md"
           if [ -f "$notes" ]; then notes_args=(--notes-file "$notes"); else notes_args=(--generate-notes); fi
           gh release create "$GITHUB_REF_NAME" \
             "release/Peliculas-y-Series-Setup-${version}.exe" \

@@ -76,6 +76,13 @@ function computeFilteredPendientes() {
   });
 }
 
+// Cards can be reached with Tab and the arrow keys (accessibility.js) and
+// are read out as "Título, Película, 2020, pendiente".
+function cardA11yAttrs(m, statusText) {
+  const parts = [m.title, TYPE_LABELS[m.type] || TYPE_LABELS.pelicula, m.year, statusText].filter(Boolean);
+  return `tabindex="0" role="button" aria-label="${escapeHtml(parts.join(', '))}"`;
+}
+
 function tagBadgesHtml(m) {
   return (m.tags || []).slice(0, 2).map((t) => `<span class="badge tag">#${escapeHtml(t)}</span>`).join('');
 }
@@ -94,7 +101,7 @@ function pendingCardHtml(m, i, selecting, isSelected) {
     ? recentUnwatchedEpisode(m, tmdbCache()[`tv:${m.tmdbId}`], todayLocalDateString())
     : null;
   return `
-  <div class="card${selecting ? ' selecting' : ''}${isSelected ? ' selected' : ''}" data-id="${m.id}" style="animation-delay:${Math.min(i, 20) * 30}ms">
+  <div class="card${selecting ? ' selecting' : ''}${isSelected ? ' selected' : ''}" data-id="${m.id}" ${cardA11yAttrs(m, m.status === 'viendo' ? progressLabel : 'pendiente')} style="animation-delay:${Math.min(i, 20) * 30}ms">
     ${selecting
       ? `<label class="select-check"><input type="checkbox" class="select-checkbox" data-id="${m.id}" ${isSelected ? 'checked' : ''}></label>`
       : `<button class="quick-watch" data-id="${m.id}" title="Marcar como vista"><svg class="icon"><use href="#icon-check"></use></svg></button>
@@ -244,7 +251,7 @@ function renderVistas() {
   container.innerHTML = visible.map((m, i) => {
     const isSelected = selectedIds.vistas.has(m.id);
     return `
-    <div class="card${selecting ? ' selecting' : ''}${isSelected ? ' selected' : ''}" data-id="${m.id}" style="animation-delay:${Math.min(i, 20) * 30}ms">
+    <div class="card${selecting ? ' selecting' : ''}${isSelected ? ' selected' : ''}" data-id="${m.id}" ${cardA11yAttrs(m, `vista${m.rating ? `, ${m.rating} de 10` : ''}`)} style="animation-delay:${Math.min(i, 20) * 30}ms">
       ${selecting
         ? `<label class="select-check"><input type="checkbox" class="select-checkbox" data-id="${m.id}" ${isSelected ? 'checked' : ''}></label>`
         : `<button class="quick-rewatch" data-id="${m.id}" title="Marcar como vista de nuevo"><svg class="icon"><use href="#icon-repeat"></use></svg></button>`}
@@ -419,7 +426,8 @@ async function applyBulkDelete(view) {
 /* ---------- Saving ---------- */
 
 async function saveMovies() {
-  await window.api.saveMovies(movies);
+  const sent = structuredClone(movies);
+  adoptMergedList('movies', sent, await window.api.saveMovies(sent));
 }
 
 

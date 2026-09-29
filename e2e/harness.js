@@ -112,6 +112,26 @@ class Page {
     return res.result.result.value;
   }
 
+  // A real key press, as the keyboard would send it. `key` is a KeyboardEvent
+  // key ('Enter', 'ArrowRight', 'n'...); modifiers: { alt, ctrl, shift }.
+  async press(key, { alt = false, ctrl = false, shift = false } = {}) {
+    const named = {
+      Enter: [13, 'Enter', '\r'], Escape: [27, 'Escape'], Tab: [9, 'Tab'], ' ': [32, 'Space', ' '],
+      ArrowLeft: [37, 'ArrowLeft'], ArrowUp: [38, 'ArrowUp'], ArrowRight: [39, 'ArrowRight'], ArrowDown: [40, 'ArrowDown'],
+      Home: [36, 'Home'], End: [35, 'End'], '/': [191, 'Slash', '/'],
+    };
+    let [keyCode, code, text] = named[key] || [];
+    if (!keyCode) {
+      keyCode = key.toUpperCase().charCodeAt(0);
+      code = /\d/.test(key) ? `Digit${key}` : `Key${key.toUpperCase()}`;
+      text = key;
+    }
+    const modifiers = (alt ? 1 : 0) | (ctrl ? 2 : 0) | (shift ? 8 : 0);
+    const base = { key, code, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode, modifiers };
+    await this.send('Input.dispatchKeyEvent', { type: text && !alt && !ctrl ? 'keyDown' : 'rawKeyDown', ...base, ...(text && !alt && !ctrl ? { text } : {}) });
+    await this.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base });
+  }
+
   async waitFor(fn, { timeout = 15000, args = [], message = 'condition' } = {}) {
     const start = Date.now();
     let last;
@@ -144,6 +164,9 @@ async function launchApp({ userDataDir, tmdbUrl, args = [] }) {
   const env = { ...process.env, PELICULAS_E2E: '1', PELICULAS_TMDB_API_URL: tmdbUrl };
   // Even set to '', this makes Electron start as plain Node.
   delete env.ELECTRON_RUN_AS_NODE;
+  // Left over by an earlier launch on the same folder: it names a dead port.
+  const portFile = path.join(userDataDir, 'DevToolsActivePort');
+  fs.rmSync(portFile, { force: true });
   const child = spawn(electronPath, ['.', `--user-data-dir=${userDataDir}`, '--remote-debugging-port=0', ...args], {
     cwd: PROJECT_ROOT,
     env,
@@ -155,7 +178,6 @@ async function launchApp({ userDataDir, tmdbUrl, args = [] }) {
   child.stderr.on('data', (d) => { output += d; });
   child.on('exit', () => { exited = true; });
 
-  const portFile = path.join(userDataDir, 'DevToolsActivePort');
   const port = (await waitForFile(portFile, 30000)).split('\n')[0].trim();
   let target = null;
   const start = Date.now();

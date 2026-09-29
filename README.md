@@ -180,7 +180,7 @@ PeliculasApp/
 │
 ├── .github/workflows/         test.yml (tests en cada push/PR) y release.yml (publica una
 │                               versión al subir un tag vX.Y.Z); notas de cada versión en
-│                               .github/release-notes/.
+│                               release-notes/.
 │
 ├── build/
 │   ├── icon.ico                Icono de la app para Windows (varios tamaños).
@@ -352,10 +352,10 @@ No hace falta generar el instalador a mano para publicar: al subir un tag `vX.Y.
 workflow `.github/workflows/release.yml` pasa los tests, comprueba que el tag coincide con la
 versión de `package.json`, genera el instalador y la portable en una máquina Windows de GitHub y
 crea la Release con los archivos ya con guiones y `latest.yml`. Las notas salen de
-`.github/release-notes/vX.Y.Z.md` si existe (es lo que la app enseña en "Ver novedades").
+`release-notes/vX.Y.Z.md` si existe (es lo que la app enseña en "Ver novedades").
 
 ```bash
-# 1. Sube la versión en package.json y escribe .github/release-notes/vX.Y.Z.md
+# 1. Sube la versión en package.json y escribe release-notes/vX.Y.Z.md
 git commit -am "Versión X.Y.Z"
 git tag vX.Y.Z
 git push && git push origin vX.Y.Z
@@ -523,8 +523,9 @@ importándose sin problema, simplemente no traen consigo lo demás porque nunca 
 
 ### Llevar tus datos a otro ordenador
 
-Cada instalación es independiente: en un ordenador nuevo, la app empieza sin perfiles, sin
-sincronizarse con las de otros ordenadores. Para trasladar todo tu perfil (títulos, papelera,
+Si quieres usar **la misma lista en varios ordenadores a la vez**, mira
+[Compartir los datos entre ordenadores](#compartir-los-datos-entre-ordenadores). Si solo quieres
+trasladarla una vez: en un ordenador nuevo la app empieza sin perfiles. Para trasladar todo tu perfil (títulos, papelera,
 suscripciones, listas de Recomendar, apariencia), usa Exportar en el ordenador de origen e
 Importar en el de destino (creando antes un perfil ahí), o copia manualmente la carpeta del perfil
 completa de un ordenador a otro (ver más abajo).
@@ -563,6 +564,29 @@ usuario tiene su propia subcarpeta:
 
 En Windows normalmente es `C:\Users\<tu usuario>\AppData\Roaming\peliculas-app\`. Puedes abrir la
 carpeta del perfil activo directamente desde Ajustes → "Abrir carpeta de datos".
+
+### Compartir los datos entre ordenadores
+
+En **Ajustes → Carpeta de datos → Cambiar carpeta...** puedes guardar los perfiles en una carpeta
+que se sincronice sola entre ordenadores (OneDrive, Google Drive, Dropbox...):
+
+1. En el primer ordenador, elige por ejemplo tu carpeta de OneDrive. La app crea dentro
+   `Peliculas y Series\` con `profiles.json`, `deleted-profiles.json` y las carpetas `profiles\` y
+   `deleted-profiles\` (copiadas de `%APPDATA%\peliculas-app\`), y a partir de ahí trabaja desde ahí.
+2. En el otro ordenador, elige la misma carpeta de OneDrive: la app ve que ya tiene datos y los usa
+   (lo que tuviera ese ordenador no se borra, solo deja de usarse). Pega la clave de TMDB una vez.
+
+Si los dos ordenadores cambian la lista a la vez, al guardar se juntan los cambios **título a
+título**: lo que se cambió en uno solo se mantiene, lo añadido en cualquiera de los dos se queda, y
+si el mismo título se cambió en los dos gana el último en guardar. Al volver a la ventana, la app
+recoge lo que haya cambiado el otro ordenador. Esto vale para la lista de títulos y la papelera;
+los ajustes del perfil y las suscripciones se guardan tal cual (gana el último cambio).
+
+En `%APPDATA%\peliculas-app\` se quedan siempre la clave de TMDB, las opciones de segundo plano y
+`data-location.json` (qué carpeta se está usando). Si al arrancar no se encuentra la carpeta
+elegida (OneDrive sin sincronizar, disco desconectado), la app usa los datos de este ordenador y lo
+avisa en Ajustes. **"Guardar solo en este ordenador"** trae los datos de la carpeta compartida tal
+como están, y deja lo que había antes en una carpeta `datos-anteriores-...`.
 
 ---
 

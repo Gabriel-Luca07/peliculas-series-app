@@ -53,6 +53,7 @@ function showToast(message, variant = 'success', options = {}) {
 /* ---------- Animated overlays ---------- */
 
 function showOverlay(overlayEl) {
+  rememberOverlayOpener(overlayEl);
   overlayEl.classList.remove('hidden');
   requestAnimationFrame(() => requestAnimationFrame(() => overlayEl.classList.add('visible')));
 }
@@ -60,7 +61,10 @@ function showOverlay(overlayEl) {
 function hideOverlay(overlayEl) {
   overlayEl.classList.remove('visible');
   const delay = document.documentElement.getAttribute('data-motion') === 'reduced' ? 0 : 200;
-  setTimeout(() => overlayEl.classList.add('hidden'), delay);
+  setTimeout(() => {
+    overlayEl.classList.add('hidden');
+    restoreOverlayOpener(overlayEl);
+  }, delay);
 }
 
 /* ---------- Global search (Ctrl+K) ---------- */
@@ -129,7 +133,11 @@ function renderAll() {
 /* ---------- Navigation ---------- */
 
 async function switchView(view) {
-  $$('.nav-item').forEach((btn) => btn.classList.toggle('active', btn.dataset.view === view));
+  $$('.nav-item').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.view === view);
+    if (btn.dataset.view === view) btn.setAttribute('aria-current', 'page');
+    else btn.removeAttribute('aria-current');
+  });
   $$('.view').forEach((section) => section.classList.toggle('active', section.id === `view-${view}`));
   updateNavIndicator();
   if (view === 'novedades') loadFollowups();

@@ -135,6 +135,25 @@ describe('la app, de principio a fin', () => {
     );
   });
 
+  test('tras actualizar, enseña una vez qué hay de nuevo en la versión', async () => {
+    const shown = await page.waitFor(() => {
+      const overlay = document.querySelector('#update-notes-overlay');
+      return !overlay.classList.contains('hidden') && {
+        heading: document.querySelector('#update-notes-heading').textContent,
+        items: document.querySelectorAll('#update-notes-body li').length,
+        installHidden: document.querySelector('#update-notes-install').classList.contains('hidden'),
+        seen: localStorage.getItem('app-last-seen-version'),
+        version: document.querySelector('#update-notes-version').textContent,
+      };
+    }, { message: 'what\'s new dialog' });
+    assert.match(shown.heading, /Qué hay de nuevo en la versión/);
+    assert.ok(shown.items > 3, 'the notes are rendered as a list');
+    assert.equal(shown.installHidden, true);
+    assert.equal(shown.seen, shown.version);
+    await page.eval(() => document.querySelector('#update-notes-later').click());
+    await page.waitFor(() => document.querySelector('#update-notes-overlay').classList.contains('hidden'), { message: 'dialog closed' });
+  });
+
   test('la clave de TMDB se guarda cifrada y se envía en cada petición', () => {
     const global = readUserDataJson(userData, 'global-settings.json');
     assert.ok(global.tmdbApiKeyEnc, 'encrypted key stored');
@@ -163,6 +182,7 @@ describe('la app, de principio a fin', () => {
     const notice = app.notifications().find((n) => n.title === 'Un pendiente ya está en tus plataformas');
     assert.ok(notice, `notifications: ${JSON.stringify(app.notifications())}`);
     assert.match(notice.body, /Pendiente en HBO: incluida en HBO Max \(plataforma actualizada\)/);
+    assert.deepEqual(notice.target, { view: 'novedades', movieId: 'p101' });
   });
 
   test('deshacer el cambio de plataforma se mantiene al volver a comprobar', async () => {
@@ -189,6 +209,55 @@ describe('la app, de principio a fin', () => {
     const notice = app.notifications().find((n) => n.title === 'Episodio nuevo de lo que estás viendo');
     assert.ok(notice);
     assert.match(notice.body, /Serie en curso: T3 · E3 ya disponible/);
+    assert.deepEqual(notice.target, { view: 'viendo', movieId: 's201' });
+  });
+
+  test('pulsar un aviso abre su apartado y la ficha del título', async () => {
+    const opened = await page.eval(async () => {
+      openNotificationTarget({ view: 'viendo', movieId: 's201' });
+      await new Promise((r) => setTimeout(r, 100));
+      const result = {
+        view: document.querySelector('.view.active').id,
+        modalOpen: !document.querySelector('#modal-overlay').classList.contains('hidden'),
+        title: document.querySelector('#f-title').value,
+      };
+      closeModal();
+      await new Promise((r) => setTimeout(r, 300));
+      return result;
+    });
+    assert.deepEqual(opened, { view: 'view-viendo', modalOpen: true, title: 'Serie en curso' });
+  });
+
+  test('resumen diario de avisos en lugar de uno por novedad', async () => {
+    const count = () => app.notifications().length;
+    const before = count();
+    const retrigger = () => page.eval(async () => {
+      localStorage.setItem(pk('episodes-notified'), '[]');
+      await loadFollowups(true);
+    });
+    await page.eval(() => {
+      $('#pref-notify-mode').value = 'digest';
+      $('#pref-notify-mode').dispatchEvent(new Event('change'));
+      $('#pref-notify-hour').value = '0';
+      $('#pref-notify-hour').dispatchEvent(new Event('change'));
+    });
+    await retrigger();
+    const digest = app.notifications().slice(before);
+    assert.equal(digest.length, 1);
+    assert.equal(digest[0].title, 'Tu resumen de hoy: 1 novedad');
+    assert.match(digest[0].body, /Serie en curso: T3 · E3/);
+
+    // Today's digest is out: more notices wait for tomorrow's...
+    await retrigger();
+    assert.equal(count(), before + 1);
+    // ...unless you go back to instant notices, which sends them right away.
+    await page.eval(() => {
+      $('#pref-notify-mode').value = 'instant';
+      $('#pref-notify-mode').dispatchEvent(new Event('change'));
+    });
+    assert.equal(count(), before + 2);
+    await retrigger();
+    assert.equal(app.notifications()[count() - 1].title, 'Episodio nuevo de lo que estás viendo');
   });
 
   test('filtros: en mis suscripciones activas y por etiqueta', async () => {
@@ -281,6 +350,77 @@ describe('la app, de principio a fin', () => {
     assert.match(result.ics, /SUMMARY:Serie en curso · T3 E4/);
   });
 
+  test('con el teclado: moverse por las tarjetas, abrirlas, atajos y volver al sitio', async () => {
+    await page.eval(() => {
+      switchView('pendientes');
+      document.querySelector('#list-pendientes .card').focus();
+    });
+    const focused = () => page.eval(() => document.activeElement && (document.activeElement.dataset.id || document.activeElement.id || document.activeElement.tagName));
+    const cards = await page.eval(() => [...document.querySelectorAll('#list-pendientes > .card')].map((c) => c.dataset.id));
+
+    await page.press('ArrowRight');
+    assert.equal(await focused(), cards[1]);
+    await page.press('ArrowLeft');
+    assert.equal(await focused(), cards[0]);
+
+    await page.press('Enter');
+    await page.waitFor(() => !document.querySelector('#modal-overlay').classList.contains('hidden'), { message: 'card opened' });
+    const opened = await page.eval(() => $('#f-title').value);
+    assert.equal(opened, await page.eval((id) => movies.find((m) => m.id === id).title, cards[0]));
+    await page.press('Escape');
+    await page.waitFor((id) => document.querySelector('#modal-overlay').classList.contains('hidden') && document.activeElement.dataset.id === id,
+      { args: [cards[0]], message: 'focus back on the card' });
+
+    await page.eval(() => document.activeElement.blur());
+    await page.press('n');
+    await page.waitFor(() => !document.querySelector('#modal-overlay').classList.contains('hidden') && $('#modal-title').textContent === 'Añadir título',
+      { message: 'N opens a new title' });
+    await page.press('Escape');
+    await page.waitFor(() => document.querySelector('#modal-overlay').classList.contains('hidden'), { message: 'closed' });
+
+    await page.press('3', { alt: true });
+    assert.equal(await page.eval(() => document.querySelector('.view.active').id), 'view-viendo');
+    assert.equal(await page.eval(() => document.querySelector('.nav-item[aria-current="page"]').dataset.view), 'viendo');
+    await page.press('/');
+    assert.equal(await focused(), 'search-viendo');
+  });
+
+  test('todo botón y campo visible tiene nombre para lectores de pantalla', async () => {
+    const offenders = await page.eval(async () => {
+      const problems = [];
+      const visible = (el) => el.offsetParent !== null;
+      for (const view of ['dashboard', 'pendientes', 'viendo', 'vistas', 'novedades', 'suscripciones', 'ajustes']) {
+        await switchView(view);
+        await new Promise((r) => setTimeout(r, 50));
+        document.querySelectorAll('.view.active button, .sidebar button').forEach((b) => {
+          if (visible(b) && !(b.textContent.trim() || b.getAttribute('aria-label'))) problems.push(`${view}: button ${b.id || b.className}`);
+        });
+        document.querySelectorAll('.view.active input:not([type=hidden]), .view.active select, .view.active textarea').forEach((f) => {
+          const labelled = (f.labels && f.labels.length) || f.getAttribute('aria-label');
+          if (visible(f) && !labelled) problems.push(`${view}: field ${f.id || f.className}`);
+        });
+      }
+      // The add/edit dialog, with every section visible.
+      openModal(null);
+      $('#f-type').value = 'serie';
+      $('#f-status').value = 'viendo';
+      updateTypeFieldVisibility();
+      updateProgressVisibility();
+      await new Promise((r) => setTimeout(r, 300));
+      document.querySelectorAll('#modal-overlay button').forEach((b) => {
+        if (visible(b) && !(b.textContent.trim() || b.getAttribute('aria-label'))) problems.push(`form: button ${b.id || b.className}`);
+      });
+      document.querySelectorAll('#modal-overlay input:not([type=hidden]), #modal-overlay select, #modal-overlay textarea').forEach((el) => {
+        const labelled = (el.labels && el.labels.length) || el.getAttribute('aria-label');
+        if (visible(el) && !labelled) problems.push(`form: field ${el.id || el.className}`);
+      });
+      closeModal();
+      await new Promise((r) => setTimeout(r, 300));
+      return problems;
+    });
+    assert.deepEqual(offenders, []);
+  });
+
   test('sin errores en la consola hasta aquí', () => {
     assert.deepEqual(page.problems, []);
   });
@@ -312,6 +452,146 @@ describe('la app, de principio a fin', () => {
   });
 });
 
+describe('carpeta de datos compartida entre dos ordenadores', () => {
+  const path = require('node:path');
+  let tmdb;
+  let first;
+  let second;
+  let shared;
+  let app;
+
+  const sharedData = () => path.join(shared, 'Peliculas y Series');
+  const sharedMovies = () => path.join(sharedData(), 'profiles', ANA, 'movies.json');
+  const readShared = () => JSON.parse(fs.readFileSync(sharedMovies(), 'utf8'));
+  // What the other computer's save looks like once OneDrive brings it here.
+  const writeShared = (list) => fs.writeFileSync(sharedMovies(), JSON.stringify(list, null, 2));
+
+  async function openProfile(page, count) {
+    await page.waitFor((id) => {
+      const card = document.querySelector(`#profile-overlay .profile-card[data-id="${id}"]`);
+      return card && !document.querySelector('#profile-overlay').classList.contains('hidden') && (card.click(), true);
+    }, { args: [ANA], message: 'profile picker' });
+    await page.waitFor((n) => activeProfileId && movies.length === n, { args: [count], message: 'profile loaded' });
+  }
+
+  // The page reloads after switching folders; `beforeSwitch` doesn't survive it.
+  const waitForReload = (page) => page.waitFor(() => !window.beforeSwitch && document.readyState === 'complete', { message: 'page reloaded' });
+
+  // Picks `dir` in Ajustes → Carpeta de datos, accepting the confirmation;
+  // the page reloads afterwards.
+  async function pickFolder(page, dir) {
+    const info = await page.eval((d) => window.api.inspectDataLocation(d), dir);
+    await page.eval((i) => {
+      window.confirm = () => true;
+      window.beforeSwitch = true;
+      setTimeout(() => applyDataLocation(i));
+    }, info);
+    await waitForReload(page);
+    return info;
+  }
+
+  before(async () => {
+    tmdb = await startFakeTmdb(tmdbRoutes());
+    first = makeUserData(fixtureFiles());
+    second = makeUserData({ 'global-settings.json': { tmdbApiKey: 'test-key' } });
+    shared = makeUserData({});
+  });
+
+  after(async () => {
+    if (app) await app.close();
+    if (tmdb) await tmdb.close();
+    [first, second, shared].forEach((d) => d && removeDir(d));
+  });
+
+  test('mover los datos a la carpeta compartida los copia y la app sigue igual', async () => {
+    app = await launchApp({ userDataDir: first, tmdbUrl: tmdb.url });
+    await openProfile(app.page, 6);
+    const info = await pickFolder(app.page, shared);
+    assert.equal(info.hasData, false);
+    assert.equal(info.dir, sharedData());
+    await openProfile(app.page, 6);
+    assert.equal(readShared().length, 6);
+    assert.equal(readUserDataJson(first, 'data-location.json').dir, sharedData());
+    // This computer's settings (the TMDB key) stay in its own folder.
+    assert.equal(fs.existsSync(path.join(sharedData(), 'global-settings.json')), false);
+    await app.page.eval(() => switchView('ajustes'));
+    assert.equal(await app.page.eval(() => $('#data-location-path').textContent), sharedData());
+  });
+
+  test('cambios a la vez en los dos ordenadores: se juntan en lugar de pisarse', async () => {
+    const { page } = app;
+    // The other computer rated one title and added another...
+    const other = readShared().map((m) => (m.id === 'p102' ? { ...m, rating: 4 } : m));
+    other.push(title({ id: 'x1', title: 'Añadida en el otro' }));
+    writeShared(other);
+    // ...while this one, without having seen that, edits a different title.
+    await page.eval(async () => {
+      movies.find((m) => m.id === 'p104').notes = 'nota de aquí';
+      await saveMovies();
+    });
+    const onDisk = readShared();
+    assert.equal(onDisk.find((m) => m.id === 'p102').rating, 4);
+    assert.equal(onDisk.find((m) => m.id === 'p104').notes, 'nota de aquí');
+    assert.ok(onDisk.some((m) => m.id === 'x1'));
+    const shown = await page.eval(() => ({ count: movies.length, x1: movies.some((m) => m.id === 'x1') }));
+    assert.deepEqual(shown, { count: 7, x1: true });
+  });
+
+  test('al volver a la ventana se ve lo que cambió el otro ordenador', async () => {
+    const { page } = app;
+    writeShared(readShared().filter((m) => m.id !== 'x1'));
+    await page.eval(() => reloadSharedChanges());
+    assert.equal(await page.eval(() => movies.some((m) => m.id === 'x1')), false);
+    assert.deepEqual(page.problems, []);
+    await app.close();
+    app = null;
+  });
+
+  test('otro ordenador elige la misma carpeta y usa esos datos', async () => {
+    app = await launchApp({ userDataDir: second, tmdbUrl: tmdb.url });
+    const { page } = app;
+    await page.waitFor(() => !document.querySelector('#profile-overlay').classList.contains('hidden'), { message: 'profile picker' });
+    // Picking the parent folder again finds the data inside it.
+    const info = await pickFolder(page, shared);
+    assert.equal(info.hasData, true);
+    await openProfile(page, 6);
+    assert.equal(await page.eval(() => movies.find((m) => m.id === 'p104').notes), 'nota de aquí');
+  });
+
+  test('volver a guardar solo en este ordenador se lleva los datos de ahora', async () => {
+    const { page } = app;
+    await page.eval(() => {
+      window.confirm = () => true;
+      window.beforeSwitch = true;
+      setTimeout(() => resetDataLocation());
+    });
+    await waitForReload(page);
+    await openProfile(page, 6);
+    assert.equal(fs.existsSync(path.join(second, 'data-location.json')), false);
+    assert.equal(readUserDataJson(second, `profiles/${ANA}/movies.json`).length, 6);
+    // What this computer had before (an empty profile list) is kept aside.
+    assert.ok(fs.readdirSync(second).some((f) => f.startsWith('datos-anteriores-')));
+    assert.deepEqual(page.problems, []);
+    await app.close();
+    app = null;
+  });
+
+  test('si la carpeta compartida no está (OneDrive sin sincronizar), usa la de este ordenador y lo avisa', async () => {
+    const gone = path.join(shared, 'no-existe');
+    fs.writeFileSync(path.join(first, 'data-location.json'), JSON.stringify({ dir: gone }));
+    app = await launchApp({ userDataDir: first, tmdbUrl: tmdb.url });
+    await openProfile(app.page, 6);
+    const warning = await app.page.eval(() => {
+      switchView('ajustes');
+      const el = $('#data-location-missing');
+      return !el.classList.contains('hidden') && el.textContent;
+    });
+    assert.ok(warning && warning.includes(gone), warning);
+    // Nothing is rewritten: once the folder is back, a restart uses it again.
+    assert.equal(readUserDataJson(first, 'data-location.json').dir, gone);
+  });
+});
+
 describe('arranque con Windows (--hidden)', () => {
   let tmdb;
   let userData;
@@ -339,7 +619,10 @@ describe('arranque con Windows (--hidden)', () => {
     const pickerHidden = await page.eval(() => document.querySelector('#profile-overlay').classList.contains('hidden'));
     assert.equal(pickerHidden, true);
     assert.equal(await page.eval(() => activeProfileId), ANA);
-    assert.ok(app.notifications().some((n) => n.title === 'Un pendiente ya está en tus plataformas'));
+    // The notice is sent after the platform changes and reaches stdout a bit later.
+    const noticed = () => app.notifications().some((n) => n.title === 'Un pendiente ya está en tus plataformas');
+    for (let t = Date.now(); !noticed() && Date.now() - t < 5000;) await sleep(100);
+    assert.ok(noticed(), app.output().slice(-600));
     assert.deepEqual(app.page.problems, []);
   });
 });

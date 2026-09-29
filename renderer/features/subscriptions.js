@@ -114,10 +114,10 @@ function renderSubscriptions() {
     // (now "Cerrar") just re-locks it, no second button needed.
     const editRowHtml = sub.active ? `
         <div class="subscription-date-row hidden" data-platform="${platformEsc}">
-          <input type="date" class="subscription-date-input" value="${sub.startDate || today}">
+          <input type="date" class="subscription-date-input" aria-label="Fecha de inicio de ${platformEsc}" value="${sub.startDate || today}">
         </div>` : `
         <div class="subscription-date-row hidden" data-platform="${platformEsc}">
-          <input type="date" class="subscription-date-input" value="${today}">
+          <input type="date" class="subscription-date-input" aria-label="Fecha de inicio de ${platformEsc}" value="${today}">
           <button type="button" class="btn primary subscription-confirm-btn" data-platform="${platformEsc}">Confirmar</button>
         </div>`;
 
@@ -127,8 +127,8 @@ function renderSubscriptions() {
         <div class="subscription-name">${platformEsc}</div>
         <label class="subscription-price-row">
           <span>€</span>
-          <input type="text" inputmode="decimal" class="subscription-price-input" data-platform="${platformEsc}" value="${sub.price != null ? sub.price : ''}" placeholder="0.00"${sub.active ? ' disabled title="Pulsa Editar para cambiarlo"' : ''}>
-          <select class="subscription-cycle-input" data-platform="${platformEsc}" title="${sub.active ? 'Pulsa Editar para cambiarlo' : 'Ciclo de facturación'}"${sub.active ? ' disabled' : ''}>
+          <input type="text" inputmode="decimal" class="subscription-price-input" aria-label="Precio de ${platformEsc}" data-platform="${platformEsc}" value="${sub.price != null ? sub.price : ''}" placeholder="0.00"${sub.active ? ' disabled title="Pulsa Editar para cambiarlo"' : ''}>
+          <select class="subscription-cycle-input" aria-label="Ciclo de facturación de ${platformEsc}" data-platform="${platformEsc}" title="${sub.active ? 'Pulsa Editar para cambiarlo' : 'Ciclo de facturación'}"${sub.active ? ' disabled' : ''}>
             ${CYCLE_OPTIONS.map((o) => `<option value="${o.value}"${(sub.cycleDays || 30) === o.value ? ' selected' : ''}>${o.unit}</option>`).join('')}
           </select>
         </label>

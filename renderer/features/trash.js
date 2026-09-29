@@ -11,7 +11,8 @@ async function purgeOldTrash() {
 }
 
 async function saveTrash() {
-  await window.api.saveTrash(trash);
+  const sent = structuredClone(trash);
+  adoptMergedList('trash', sent, await window.api.saveTrash(sent));
 }
 
 function updateTrashBadge() {

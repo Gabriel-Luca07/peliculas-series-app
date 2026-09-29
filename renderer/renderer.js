@@ -122,6 +122,7 @@ async function init() {
   $('#auto-backup-toggle').checked = settings.autoBackupEnabled !== false;
   $('#auto-backup-retention').value = settings.autoBackupRetentionDays || 14;
   bindEvents();
+  initAccessibility();
   renderPlatformsList();
   renderAll();
   renderTrash();
@@ -141,13 +142,15 @@ async function init() {
   updateProfileBadge();
   initAutoUpdater();
   // Clicking a system notification (e.g. from Novedades or Viendo) opens its view.
-  window.api.onNavigate((view) => switchView(view));
+  window.api.onNavigate(openNotificationTarget);
   // "Buscar novedades ahora" in the tray menu.
   window.api.onCheckNow(() => {
     loadFollowups(true);
     loadUpcomingReleases(true);
   });
   initBackgroundSettings();
+  initDataLocation();
+  showWhatsNewIfUpdated();
 }
 
 /* ---------- Events ---------- */
@@ -186,7 +189,9 @@ function bindEvents() {
   });
 
   bindGlobalUiEvents();
+  bindAccessibilityEvents();
   bindAppearanceEvents();
+  bindDataLocationEvents();
   bindMovieListEvents();
   bindMovieFormEvents();
   bindHistoryImportEvents();

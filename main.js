@@ -3,17 +3,55 @@ const {
 } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
+const fsSync = require('fs');
 const crypto = require('crypto');
 const { autoUpdater } = require('electron-updater');
 const { todayLocalDateString } = require('./lib/date-utils');
 const { findOverlappingHistoryEntry, reconcileSubscriptionEntry } = require('./lib/subscription-logic');
 const { isValidProfileColor, sanitizeProfileInitial } = require('./lib/profile-utils');
 const { createTmdbApi } = require('./lib/tmdb-api');
+const { mergeById } = require('./lib/sync-merge');
 
-const dataDir = app.getPath('userData');
-const profilesFile = path.join(dataDir, 'profiles.json');
-const globalSettingsFile = path.join(dataDir, 'global-settings.json');
-const deletedProfilesFile = path.join(dataDir, 'deleted-profiles.json');
+// This computer's own app folder. What belongs to this computer stays here:
+// the TMDB key (encrypted for this Windows account), tray/login settings and
+// where the profiles are kept (data-location.json).
+const localDir = app.getPath('userData');
+const globalSettingsFile = path.join(localDir, 'global-settings.json');
+const dataLocationFile = path.join(localDir, 'data-location.json');
+
+// The profiles (lists, subscriptions, backups...) live in localDir, or in a
+// folder picked in Ajustes → "Carpeta de datos" (e.g. in OneDrive) so that
+// several computers share them. See useDataDir() and lib/sync-merge.js.
+let dataDir = localDir;
+let profilesFile;
+let deletedProfilesFile;
+// The picked folder, when it couldn't be found at startup (OneDrive not
+// synced yet, drive unplugged): the app then works with localDir.
+let missingDataDir = null;
+
+function useDataDir(dir) {
+  dataDir = dir;
+  profilesFile = path.join(dataDir, 'profiles.json');
+  deletedProfilesFile = path.join(dataDir, 'deleted-profiles.json');
+}
+
+function readDataLocationSync() {
+  try {
+    const { dir } = JSON.parse(fsSync.readFileSync(dataLocationFile, 'utf-8'));
+    return typeof dir === 'string' && dir ? dir : null;
+  } catch {
+    return null;
+  }
+}
+
+{
+  const picked = readDataLocationSync();
+  if (picked && fsSync.existsSync(path.join(picked, 'profiles.json'))) useDataDir(picked);
+  else {
+    useDataDir(localDir);
+    missingDataDir = picked;
+  }
+}
 
 function profileDir(id) { return path.join(dataDir, 'profiles', id); }
 function moviesFile(id) { return path.join(profileDir(id), 'movies.json'); }
@@ -166,11 +204,14 @@ async function applyFullBackupPayload(profileId, payload) {
   const counts = { movies: 0, trash: 0, subscriptions: 0, subscriptionHistory: 0, shareLists: 0 };
 
   if (Array.isArray(payload.movies)) {
+    // A deliberate replacement: nothing to merge with what was there.
     await writeJson(moviesFile(profileId), payload.movies);
+    syncBase.set(moviesFile(profileId), payload.movies);
     counts.movies = payload.movies.length;
   }
   if (Array.isArray(payload.trash)) {
     await writeJson(trashFile(profileId), payload.trash);
+    syncBase.set(trashFile(profileId), payload.trash);
     counts.trash = payload.trash.length;
   }
   if (payload.settings) await writeJson(profileSettingsFile(profileId), payload.settings);
@@ -344,9 +385,9 @@ if (E2E_MODE) {
 }
 
 // Shows a system notification; `onClick` runs when it's clicked.
-function showNotification({ title, body, onClick }) {
+function showNotification({ title, body, onClick, target }) {
   if (E2E_MODE) {
-    process.stdout.write(`[notify] ${JSON.stringify({ title, body })}\n`);
+    process.stdout.write(`[notify] ${JSON.stringify({ title, body, target: target || null })}\n`);
     return true;
   }
   if (!Notification.isSupported()) return false;
@@ -723,22 +764,72 @@ ipcMain.handle('profiles:setActive', async (_event, id) => {
   return { ok: true };
 });
 
-ipcMain.handle('movies:load', async () => {
-  return readJson(moviesFile(currentProfileId), []);
-});
+/* ---------- Lists shared between computers ---------- */
 
-ipcMain.handle('movies:save', async (_event, movies) => {
-  await writeJson(moviesFile(currentProfileId), movies);
-  return true;
-});
+// The titles and the trash may be changed on disk by another computer that
+// shares the data folder. `syncBase` keeps, per file, the version this app
+// last read or wrote; saving over a file that no longer matches it merges
+// both sides (lib/sync-merge.js) instead of overwriting the other's changes.
+const syncBase = new Map();
+// Saves of one file run one after the other, so each sees the last's result.
+const syncQueue = new Map();
+const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
-ipcMain.handle('trash:load', async () => {
-  return readJson(trashFile(currentProfileId), []);
-});
+async function readSyncedList(file) {
+  const list = await readJson(file, []);
+  syncBase.set(file, list);
+  return list;
+}
 
-ipcMain.handle('trash:save', async (_event, trash) => {
-  await writeJson(trashFile(currentProfileId), trash);
-  return true;
+// Returns the merged list when another computer's changes were merged in
+// (the renderer then shows that), null otherwise.
+function saveSyncedList(file, list) {
+  const run = async () => {
+    let result = list;
+    let merged = false;
+    const base = syncBase.get(file);
+    if (base) {
+      // Unreadable (half-synced) file: just save over it.
+      const onDisk = await readJson(file, null).catch(() => null);
+      if (Array.isArray(onDisk) && !sameJson(onDisk, base)) {
+        result = mergeById(base, list, onDisk);
+        merged = !sameJson(result, list);
+      }
+    }
+    await writeJson(file, result);
+    syncBase.set(file, result);
+    return merged ? result : null;
+  };
+  const next = (syncQueue.get(file) || Promise.resolve()).then(run, run);
+  syncQueue.set(file, next.catch(() => {}));
+  return next;
+}
+
+// What another computer saved since this app last read or wrote the file:
+// the new list, or null when nothing changed.
+async function readSyncedListIfChanged(file) {
+  await syncQueue.get(file);
+  const base = syncBase.get(file);
+  const onDisk = await readJson(file, null).catch(() => null);
+  if (!base || !Array.isArray(onDisk) || sameJson(onDisk, base)) return null;
+  syncBase.set(file, onDisk);
+  return onDisk;
+}
+
+ipcMain.handle('movies:load', async () => readSyncedList(moviesFile(currentProfileId)));
+
+ipcMain.handle('movies:save', async (_event, movies) => saveSyncedList(moviesFile(currentProfileId), movies));
+
+ipcMain.handle('trash:load', async () => readSyncedList(trashFile(currentProfileId)));
+
+ipcMain.handle('trash:save', async (_event, trash) => saveSyncedList(trashFile(currentProfileId), trash));
+
+ipcMain.handle('data:reloadIfChanged', async () => {
+  if (!currentProfileId) return { movies: null, trash: null };
+  return {
+    movies: await readSyncedListIfChanged(moviesFile(currentProfileId)),
+    trash: await readSyncedListIfChanged(trashFile(currentProfileId)),
+  };
 });
 
 ipcMain.handle('settings:load', async () => {
@@ -1073,6 +1164,102 @@ ipcMain.handle('app:openDataFolder', async () => {
   return true;
 });
 
+/* ---------- Data folder (Ajustes → Carpeta de datos) ---------- */
+
+// Everything a data folder holds (localDir also has Chromium's own files and
+// this computer's settings, which aren't moved).
+const DATA_ENTRIES = ['profiles.json', 'deleted-profiles.json', 'profiles', 'deleted-profiles'];
+const DATA_SUBFOLDER = 'Peliculas y Series';
+
+function dataLocationInfo() {
+  return { dir: dataDir, shared: dataDir !== localDir, missing: missingDataDir };
+}
+
+const isInsideOrSame = (child, parent) => {
+  const rel = path.relative(parent, child);
+  return !rel.startsWith('..') && !path.isAbsolute(rel);
+};
+
+// The folder picked is used as is when it already holds the app's data
+// (picked on a second computer); otherwise the data goes in a "Peliculas y
+// Series" folder inside it, which another computer may have filled already.
+function inspectDataLocation(picked) {
+  const base = path.resolve(String(picked || ''));
+  const dir = fsSync.existsSync(path.join(base, 'profiles.json')) ? base : path.join(base, DATA_SUBFOLDER);
+  if (isInsideOrSame(dir, localDir) || isInsideOrSame(localDir, dir)) return { error: 'APP_FOLDER' };
+  if (path.relative(dataDir, dir) === '') return { error: 'SAME' };
+  return { picked: base, dir, hasData: fsSync.existsSync(path.join(dir, 'profiles.json')) };
+}
+
+async function copyDataTo(target) {
+  await fs.mkdir(target, { recursive: true });
+  for (const entry of DATA_ENTRIES) {
+    const from = path.join(dataDir, entry);
+    if (fsSync.existsSync(from)) await fs.cp(from, path.join(target, entry), { recursive: true, force: true });
+  }
+}
+
+// Before bringing the data back into localDir, keeps the copy that was there
+// from before in a "datos-anteriores-..." folder instead of mixing them.
+async function setAsideData(dir) {
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  const aside = path.join(dir, `datos-anteriores-${stamp}`);
+  for (const entry of DATA_ENTRIES) {
+    const from = path.join(dir, entry);
+    if (!fsSync.existsSync(from)) continue;
+    await fs.mkdir(aside, { recursive: true });
+    await fs.rename(from, path.join(aside, entry));
+  }
+}
+
+// Switches without restarting; the renderer reloads the page afterwards.
+async function switchDataDir(dir) {
+  syncBase.clear();
+  useDataDir(dir);
+  missingDataDir = null;
+  await migrateLegacyDataIfNeeded();
+  const data = await readJson(profilesFile, { profiles: [] });
+  if (!data.profiles.some((p) => p.id === currentProfileId)) currentProfileId = null;
+}
+
+ipcMain.handle('data:getLocation', () => dataLocationInfo());
+
+ipcMain.handle('data:pickLocation', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: 'Elige dónde guardar tus datos (por ejemplo, en OneDrive)',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (canceled || !filePaths.length) return null;
+  return inspectDataLocation(filePaths[0]);
+});
+
+ipcMain.handle('data:inspectLocation', (_event, picked) => inspectDataLocation(picked));
+
+// mode 'copy': this computer's data goes to a folder with none yet.
+// mode 'use': the folder already has data (from another computer) and this
+// one starts using it; its own data stays where it was.
+ipcMain.handle('data:setLocation', async (_event, picked, mode) => {
+  const info = inspectDataLocation(picked);
+  if (info.error) return info;
+  if (mode !== (info.hasData ? 'use' : 'copy')) return { error: 'MODE' };
+  if (mode === 'copy') await copyDataTo(info.dir);
+  await writeJson(dataLocationFile, { dir: info.dir });
+  await switchDataDir(info.dir);
+  return { ok: true, ...dataLocationInfo() };
+});
+
+// Back to keeping the data only on this computer, with what the shared
+// folder has now (the shared folder itself is left as is).
+ipcMain.handle('data:resetLocation', async () => {
+  if (dataDir !== localDir) {
+    await setAsideData(localDir);
+    await copyDataTo(localDir);
+  }
+  await fs.rm(dataLocationFile, { force: true });
+  await switchDataDir(localDir);
+  return { ok: true, ...dataLocationInfo() };
+});
+
 ipcMain.handle('app:openBackupsFolder', async () => {
   const dir = backupsDir(currentProfileId);
   await fs.mkdir(dir, { recursive: true });
@@ -1092,17 +1279,28 @@ ipcMain.handle('app:runBackupNow', async () => {
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
 
+// Notes of an installed version (release-notes/vX.Y.Z.md, packaged with the
+// app), shown once after updating. Null when there are none.
+ipcMain.handle('app:getReleaseNotes', async (_event, version) => {
+  if (!/^\d+\.\d+\.\d+$/.test(String(version))) return null;
+  return fs.readFile(path.join(__dirname, 'release-notes', `v${version}.md`), 'utf-8').catch(() => null);
+});
+
 // System notification; clicking it brings the window back and tells the
-// renderer which view to open.
-ipcMain.handle('app:notify', (_event, title, body, view) => showNotification({
-  title,
-  body,
-  onClick: () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    showMainWindow();
-    if (view) mainWindow.webContents.send('app:navigate', view);
-  },
-}));
+// renderer which view to open (and which title, when it's about just one).
+ipcMain.handle('app:notify', (_event, title, body, view, movieId) => {
+  const target = { view: view || null, movieId: movieId || null };
+  return showNotification({
+    title,
+    body,
+    target,
+    onClick: () => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      showMainWindow();
+      mainWindow.webContents.send('app:navigate', target);
+    },
+  });
+});
 
 ipcMain.handle('updater:check', async () => {
   if (!app.isPackaged) return { error: 'DEV_MODE' };

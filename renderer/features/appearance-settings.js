@@ -102,6 +102,10 @@ function initBehaviorPrefs() {
   $('#pref-availability-notify-toggle').checked = availabilityNotify;
   $('#pref-auto-platform-toggle').checked = autoPlatform;
   $('#pref-episodes-notify-toggle').checked = episodesNotify;
+  $('#pref-notify-hour').innerHTML = Array.from({ length: 24 }, (_, h) => `<option value="${h}">${String(h).padStart(2, '0')}:00</option>`).join('');
+  $('#pref-notify-mode').value = notifyMode();
+  $('#pref-notify-hour').value = String(digestHour());
+  $('#pref-notify-hour-field').classList.toggle('hidden', notifyMode() !== 'digest');
 
   PAGE_SIZE = pageSize;
   pendientesPageSize = PAGE_SIZE;
@@ -259,6 +263,15 @@ function bindAppearanceEvents() {
   });
   $('#pref-episodes-notify-toggle').addEventListener('change', (e) => {
     localStorage.setItem(pk('pref-episodes-notify'), String(e.target.checked));
+  });
+  $('#pref-notify-mode').addEventListener('change', (e) => {
+    localStorage.setItem(pk('pref-notify-mode'), e.target.value);
+    $('#pref-notify-hour-field').classList.toggle('hidden', e.target.value !== 'digest');
+    if (e.target.value === 'instant') flushDigestNow();
+  });
+  $('#pref-notify-hour').addEventListener('change', (e) => {
+    localStorage.setItem(pk('pref-notify-hour'), e.target.value);
+    flushDigestIfDue();
   });
   $$('.panel-toggle').forEach((toggle) => {
     toggle.addEventListener('change', (e) => {
