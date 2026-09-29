@@ -1,6 +1,6 @@
 // Entry point: shared state, small core utilities, and init(). bindEvents()
 // here is now just a thin orchestrator that calls each feature file's own
-// bindXEvents() (e.g. bindMovieEvents() in movies.js); the numeric-input
+// bindXEvents() (e.g. bindMovieListEvents() in movie-lists.js); the numeric-input
 // enforcement loop stays inline since it spans movie-form and settings
 // fields that don't belong to a single feature. Loaded LAST in index.html,
 // after lib/*.js and every renderer/features/*.js file, since its trailing
@@ -142,6 +142,12 @@ async function init() {
   initAutoUpdater();
   // Clicking a system notification (e.g. from Novedades or Viendo) opens its view.
   window.api.onNavigate((view) => switchView(view));
+  // "Buscar novedades ahora" in the tray menu.
+  window.api.onCheckNow(() => {
+    loadFollowups(true);
+    loadUpcomingReleases(true);
+  });
+  initBackgroundSettings();
 }
 
 /* ---------- Events ---------- */
@@ -181,11 +187,14 @@ function bindEvents() {
 
   bindGlobalUiEvents();
   bindAppearanceEvents();
-  bindMovieEvents();
+  bindMovieListEvents();
+  bindMovieFormEvents();
+  bindHistoryImportEvents();
   bindProfileEvents();
   bindDashboardEvents();
   bindRecommendationsEvents();
   bindFollowupsEvents();
+  bindCalendarEvents();
   bindShareListEvents();
   bindSubscriptionEvents();
   bindTrashEvents();

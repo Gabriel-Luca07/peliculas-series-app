@@ -38,6 +38,9 @@ jobs:
 
       - run: npm ci
 
+      - name: End-to-end tests
+        run: npm run test:e2e
+
       # postdist (scripts/rename-release-assets.js) copies the files to the
       # hyphenated names latest.yml expects; uploading the space-named ones
       # breaks the auto-updater.

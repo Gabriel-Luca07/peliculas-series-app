@@ -46,6 +46,15 @@ contextBridge.exposeInMainWorld('api', {
   runBackupNow: () => ipcRenderer.invoke('app:runBackupNow'),
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
   notify: (title, body, view) => ipcRenderer.invoke('app:notify', title, body, view),
+  getBackgroundSettings: () => ipcRenderer.invoke('app:getBackgroundSettings'),
+  setBackgroundSettings: (patch) => ipcRenderer.invoke('app:setBackgroundSettings', patch),
+  consumeHiddenStart: () => ipcRenderer.invoke('app:consumeHiddenStart'),
+  saveCalendar: (icsText) => ipcRenderer.invoke('data:saveCalendar', icsText),
+  onCheckNow: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('app:checkNow', handler);
+    return () => ipcRenderer.removeListener('app:checkNow', handler);
+  },
   onNavigate: (callback) => {
     const handler = (_event, view) => callback(view);
     ipcRenderer.on('app:navigate', handler);
@@ -59,3 +68,11 @@ contextBridge.exposeInMainWorld('api', {
     return () => ipcRenderer.removeListener('updater:status', handler);
   },
 });
+
+// Only in the end-to-end tests (main.js passes --e2e): lets them close the
+// window the way its X button does.
+if (process.argv.includes('--e2e')) {
+  contextBridge.exposeInMainWorld('e2e', {
+    closeWindow: () => ipcRenderer.invoke('e2e:closeWindow'),
+  });
+}

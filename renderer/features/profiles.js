@@ -19,11 +19,16 @@ function avatarInnerHtml(profile) {
 async function resolveActiveProfile() {
   const data = await window.api.listProfiles();
   allProfiles = data.profiles || [];
-  if (sessionStorage.getItem('skipProfilePicker') === '1') {
+  // Started hidden at Windows login: nobody is there to answer "¿Quién ve
+  // ahora?", so the background checks run for the last profile used.
+  const hiddenStart = await window.api.consumeHiddenStart();
+  if (hiddenStart || sessionStorage.getItem('skipProfilePicker') === '1') {
     sessionStorage.removeItem('skipProfilePicker');
     const last = allProfiles.find((p) => p.id === data.lastActiveProfileId);
     if (last) {
       activeProfileId = last.id;
+      // After a profile switch main.js already has it; on a fresh start it doesn't.
+      if (hiddenStart) await window.api.setActiveProfile(last.id);
       return;
     }
   }

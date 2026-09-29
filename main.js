@@ -1,4 +1,6 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Notification, safeStorage } = require('electron');
+const {
+  app, BrowserWindow, ipcMain, dialog, shell, Notification, safeStorage, Tray, Menu, nativeImage,
+} = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
 const crypto = require('crypto');
@@ -28,7 +30,9 @@ const DELETED_PROFILE_RETENTION_DAYS = 30;
 
 let currentProfileId = null;
 
-const DEFAULT_GLOBAL_SETTINGS = { tmdbApiKey: '' };
+// App-wide settings (not per profile): the TMDB key and how the app behaves
+// in the background.
+const DEFAULT_GLOBAL_SETTINGS = { tmdbApiKey: '', closeToTray: true, openAtLogin: false, trayHintShown: false };
 const DEFAULT_PROFILE_SETTINGS = {
   language: 'es-ES', region: 'ES',
   autoBackupEnabled: true, autoBackupRetentionDays: 14,
@@ -60,12 +64,24 @@ async function writeJson(file, data) {
 // Kept in memory once read: every TMDB request needs it.
 let tmdbApiKeyCache = null;
 
+async function readGlobalSettings() {
+  return { ...DEFAULT_GLOBAL_SETTINGS, ...await readJson(globalSettingsFile, {}) };
+}
+
+// Merges `patch` into global-settings.json; keys set to undefined are removed.
+async function updateGlobalSettings(patch) {
+  const next = { ...await readJson(globalSettingsFile, {}), ...patch };
+  Object.keys(next).forEach((k) => { if (next[k] === undefined) delete next[k]; });
+  await writeJson(globalSettingsFile, next);
+  return { ...DEFAULT_GLOBAL_SETTINGS, ...next };
+}
+
 async function writeTmdbApiKey(key) {
   const clean = key || '';
   if (clean && safeStorage.isEncryptionAvailable()) {
-    await writeJson(globalSettingsFile, { tmdbApiKeyEnc: safeStorage.encryptString(clean).toString('base64') });
+    await updateGlobalSettings({ tmdbApiKeyEnc: safeStorage.encryptString(clean).toString('base64'), tmdbApiKey: undefined });
   } else {
-    await writeJson(globalSettingsFile, { tmdbApiKey: clean });
+    await updateGlobalSettings({ tmdbApiKey: clean, tmdbApiKeyEnc: undefined });
   }
   tmdbApiKeyCache = clean;
 }
@@ -313,9 +329,100 @@ async function migrateLegacyDataIfNeeded() {
   await fs.rename(legacySettingsFile, `${legacySettingsFile}.bak`).catch(() => {});
 }
 
-let mainWindow = null;
+// End-to-end tests (e2e/) set PELICULAS_E2E=1: notifications are printed
+// to stdout (as "[notify] {json}") for the test to check, instead of popping
+// up on the desktop. PELICULAS_TMDB_API_URL points TMDB at a local fake.
+const E2E_MODE = process.env.PELICULAS_E2E === '1';
 
-function createWindow() {
+// In test mode the page gets window.e2e.closeWindow() (see preload.js): the
+// same close as clicking the window's X, which window.close() from the page
+// skips.
+if (E2E_MODE) {
+  ipcMain.handle('e2e:closeWindow', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+  });
+}
+
+// Shows a system notification; `onClick` runs when it's clicked.
+function showNotification({ title, body, onClick }) {
+  if (E2E_MODE) {
+    process.stdout.write(`[notify] ${JSON.stringify({ title, body })}\n`);
+    return true;
+  }
+  if (!Notification.isSupported()) return false;
+  const notification = new Notification({ title, body, icon: appIconPath('png') });
+  if (onClick) notification.on('click', onClick);
+  notification.show();
+  return true;
+}
+
+let mainWindow = null;
+let tray = null;
+// Set when the app really has to exit (tray "Salir", installing an update,
+// Windows shutting down): closing the window then quits instead of hiding it.
+let isQuitting = false;
+// Started by Windows at login (see applyOpenAtLogin): stay in the tray.
+const startedHidden = process.argv.includes('--hidden');
+let hiddenStartPending = startedHidden;
+
+function appIconPath(ext) {
+  return path.join(__dirname, 'build', `icon.${ext}`);
+}
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow({ show: true });
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function quitApp() {
+  isQuitting = true;
+  app.quit();
+}
+
+function createTray() {
+  if (tray) return;
+  tray = new Tray(nativeImage.createFromPath(appIconPath(process.platform === 'win32' ? 'ico' : 'png')));
+  tray.setToolTip('Películas y Series');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Abrir Películas y Series', click: showMainWindow },
+    {
+      label: 'Buscar novedades ahora',
+      click: () => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('app:checkNow');
+      },
+    },
+    { type: 'separator' },
+    { label: 'Salir', click: quitApp },
+  ]));
+  tray.on('click', showMainWindow);
+}
+
+// Mirrors global-settings.json's closeToTray: the window's close event has to
+// decide synchronously whether to cancel the close.
+let closeToTrayCache = DEFAULT_GLOBAL_SETTINGS.closeToTray;
+
+// Closing the window keeps the app running in the tray (so the checks for
+// new episodes, seasons and availability go on) unless that's turned off.
+// The first time, a notification explains where it went.
+async function hideToTray(win) {
+  win.hide();
+  const settings = await readGlobalSettings().catch(() => DEFAULT_GLOBAL_SETTINGS);
+  if (!settings.trayHintShown) {
+    showNotification({
+      title: 'Películas y Series sigue abierta',
+      body: 'Sigue buscando novedades desde la bandeja del sistema (junto al reloj). Para cerrarla del todo: clic derecho en su icono → Salir. Puedes cambiarlo en Ajustes.',
+      onClick: showMainWindow,
+    });
+    await updateGlobalSettings({ trayHintShown: true });
+  }
+}
+
+function createWindow({ show = true } = {}) {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -323,12 +430,13 @@ function createWindow() {
     minHeight: 600,
     autoHideMenuBar: true,
     show: false,
-    icon: path.join(__dirname, 'build', 'icon.png'),
+    icon: appIconPath('png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      additionalArguments: E2E_MODE ? ['--e2e'] : [],
     },
   });
   mainWindow = win;
@@ -347,8 +455,14 @@ function createWindow() {
     openIfWebLink(url);
   });
   win.once('ready-to-show', () => {
+    if (!show) return;
     win.show();
     win.focus();
+  });
+  win.on('close', (event) => {
+    if (isQuitting || !closeToTrayCache) return;
+    event.preventDefault();
+    hideToTray(win);
   });
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
@@ -393,20 +507,71 @@ autoUpdater.on('error', (err) => sendUpdaterStatus({ state: 'error', message: er
 // it has to match the installer's appId (package.json build.appId).
 if (process.platform === 'win32') app.setAppUserModelId('com.raul.peliculasyseries');
 
+// Starting the app again (shortcut, Start menu) while it's in the tray just
+// brings the existing window back.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on('second-instance', showMainWindow);
+}
+
+// Only the installed/portable app registers itself (a dev build would
+// register electron.exe). The portable version must point at its own .exe,
+// not at the temporary folder it unpacks itself into.
+function applyOpenAtLogin(openAtLogin) {
+  if (!app.isPackaged) return;
+  const exePath = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+  app.setLoginItemSettings({ openAtLogin, path: exePath, args: ['--hidden'] });
+}
+
+app.on('before-quit', () => { isQuitting = true; });
+
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
 app.whenReady().then(async () => {
+  if (!gotSingleInstanceLock) return;
   await migrateLegacyDataIfNeeded();
   await purgeOldDeletedProfiles();
-  createWindow();
+  closeToTrayCache = (await readGlobalSettings()).closeToTray;
+  createTray();
+  createWindow({ show: !startedHidden });
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
   if (app.isPackaged) {
     autoUpdater.checkForUpdates().catch(() => {});
+    // The app can now stay in the tray for days.
+    setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), UPDATE_CHECK_INTERVAL_MS);
   }
 });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+ipcMain.handle('app:getBackgroundSettings', async () => {
+  const settings = await readGlobalSettings();
+  return { closeToTray: settings.closeToTray, openAtLogin: settings.openAtLogin, canOpenAtLogin: app.isPackaged };
+});
+
+ipcMain.handle('app:setBackgroundSettings', async (_event, patch) => {
+  const clean = {};
+  if (typeof patch.closeToTray === 'boolean') clean.closeToTray = patch.closeToTray;
+  if (typeof patch.openAtLogin === 'boolean') clean.openAtLogin = patch.openAtLogin;
+  const settings = await updateGlobalSettings(clean);
+  closeToTrayCache = settings.closeToTray;
+  if ('openAtLogin' in clean) applyOpenAtLogin(clean.openAtLogin);
+  return { closeToTray: settings.closeToTray, openAtLogin: settings.openAtLogin, canOpenAtLogin: app.isPackaged };
+});
+
+// True only for the first page load of a start at Windows login, so the
+// renderer skips "¿Quién ve ahora?" and uses the last profile in the
+// background (later reloads, e.g. switching profile, ask as usual).
+ipcMain.handle('app:consumeHiddenStart', () => {
+  const value = hiddenStartPending;
+  hiddenStartPending = false;
+  return value;
 });
 
 function buildAvatarUrl(dir, avatarFile) {
@@ -589,7 +754,7 @@ ipcMain.handle('settings:save', async (_event, settings) => {
 
 /* ---------- TMDB ---------- */
 
-const tmdb = createTmdbApi(fetch);
+const tmdb = createTmdbApi(fetch, process.env.PELICULAS_TMDB_API_URL ? { baseUrl: process.env.PELICULAS_TMDB_API_URL } : {});
 
 // Registers a tmdb:* IPC handler with the boilerplate every one of them
 // shares: read the key/language/region from settings, bail out without a key,
@@ -870,6 +1035,22 @@ ipcMain.handle('data:applyImport', async (_event, payload) => {
   }
 });
 
+ipcMain.handle('data:saveCalendar', async (_event, icsText) => {
+  const win = BrowserWindow.getFocusedWindow();
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    title: 'Exportar al calendario',
+    defaultPath: `estrenos-peliculas-y-series-${todayLocalDateString()}.ics`,
+    filters: [{ name: 'Calendario (iCalendar)', extensions: ['ics'] }],
+  });
+  if (canceled || !filePath) return { canceled: true };
+  try {
+    await fs.writeFile(filePath, String(icsText), 'utf-8');
+    return { canceled: false, filePath };
+  } catch (err) {
+    return { canceled: false, error: 'WRITE_FAILED' };
+  }
+});
+
 ipcMain.handle('data:pickCsv', async () => {
   const win = BrowserWindow.getFocusedWindow();
   const { canceled, filePaths } = await dialog.showOpenDialog(win, {
@@ -913,19 +1094,15 @@ ipcMain.handle('app:getVersion', () => app.getVersion());
 
 // System notification; clicking it brings the window back and tells the
 // renderer which view to open.
-ipcMain.handle('app:notify', (_event, title, body, view) => {
-  if (!Notification.isSupported()) return false;
-  const notification = new Notification({ title, body, icon: path.join(__dirname, 'build', 'icon.png') });
-  notification.on('click', () => {
+ipcMain.handle('app:notify', (_event, title, body, view) => showNotification({
+  title,
+  body,
+  onClick: () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
+    showMainWindow();
     if (view) mainWindow.webContents.send('app:navigate', view);
-  });
-  notification.show();
-  return true;
-});
+  },
+}));
 
 ipcMain.handle('updater:check', async () => {
   if (!app.isPackaged) return { error: 'DEV_MODE' };
@@ -943,5 +1120,8 @@ ipcMain.handle('updater:check', async () => {
 });
 
 ipcMain.handle('updater:install', () => {
+  // Otherwise closing the window would just hide it and the update would
+  // never get installed.
+  isQuitting = true;
   autoUpdater.quitAndInstall();
 });

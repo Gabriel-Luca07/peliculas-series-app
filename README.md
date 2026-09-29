@@ -58,6 +58,11 @@ Construida con [Electron](https://www.electronjs.org/) y JavaScript "vanilla" (s
   "más de lo mismo"), con una pequeña cuota de series entre las películas. El botón de recargar
   muestra selecciones distintas cada vez, sin repetirse hasta agotar las opciones disponibles.
 - Panel de "Próximos estrenos" con la fecha del próximo episodio de todas tus series con datos de TMDB.
+- **Exportar al calendario** (botón en "Próximos estrenos" y en Novedades): un archivo `.ics` con los
+  próximos episodios de tus series, las temporadas nuevas y secuelas que ya tienen fecha y las
+  renovaciones de tus suscripciones, para importarlo en Google Calendar, Outlook o el calendario del
+  móvil. Cada fecha lleva un identificador fijo, así que al volver a exportar e importar se refiere a
+  los mismos eventos.
 - **Pendientes disponibles en tus plataformas**: la app mira cada día en TMDB dónde se puede ver cada
   pendiente y, cuando uno pasa a estar incluido en una suscripción que tienes activa, te avisa (aviso
   de Windows + apartado Novedades), le cambia la plataforma a esa (con opción de deshacerlo, y
@@ -127,6 +132,16 @@ Construida con [Electron](https://www.electronjs.org/) y JavaScript "vanilla" (s
 - Plataformas personalizadas, orden y tamaño de página configurables, panel de inicio a elegir.
 - Copia de seguridad automática configurable (ver más abajo).
 
+**Segundo plano**
+- Al cerrar la ventana la app **sigue en la bandeja del sistema** (junto al reloj) y continúa
+  comprobando episodios nuevos, temporadas y pendientes en tus plataformas, así que los avisos te
+  llegan aunque no la tengas abierta. Para cerrarla del todo: clic derecho en su icono → Salir
+  (desde ahí también puedes forzar "Buscar novedades ahora").
+- Opción de **abrirla al iniciar Windows**, directamente en la bandeja y con el último perfil que
+  usaste (sin preguntar "¿Quién ve ahora?"). Ambas cosas se cambian en Ajustes → Segundo plano.
+- Si vuelves a abrirla desde el acceso directo mientras está en la bandeja, simplemente reaparece
+  la ventana (no se abren dos copias).
+
 ---
 
 ## Estructura del proyecto
@@ -145,8 +160,9 @@ PeliculasApp/
 │   ├── renderer.js             Estado compartido, utilidades pequeñas, init() y todo el
 │   │                           cableado de eventos (bindEvents) — se carga el último.
 │   ├── features/               Un archivo por sección (perfiles, suscripciones, papelera,
-│   │                           recomendaciones, listas para compartir, dashboard, apariencia,
-│   │                           actualizaciones, y el propio listado de películas/series).
+│   │                           recomendaciones, listas para compartir, dashboard y gráficas,
+│   │                           novedades, calendario, apariencia, actualizaciones, y las listas,
+│   │                           el formulario y la importación de películas/series).
 │   │                           Sin bundler: son scripts normales que comparten el mismo
 │   │                           ámbito global que renderer.js, cargados antes que él.
 │   ├── style.css               Estilos, temas, animaciones y diseño responsive.
@@ -155,10 +171,12 @@ PeliculasApp/
 ├── lib/                       Lógica compartida sin Electron ni DOM (fechas, ciclo de
 │                               suscripciones, importación de historiales y fusión de listas,
 │                               filtros de las listas, novedades y disponibilidad, llamadas a
-│                               TMDB, validación de perfiles) — la usan main.js y el renderer, y es
-│                               lo que cubren los tests.
+│                               TMDB, planificador de suscripciones, gráficas, listas para
+│                               compartir, calendario .ics, validación de perfiles) — la usan
+│                               main.js y el renderer, y es lo que cubren los tests.
 │
 ├── test/                      Tests automatizados (`npm test`), uno por archivo de `lib/`.
+├── e2e/                       Tests de la app de verdad, manejando su ventana (`npm run test:e2e`).
 │
 ├── .github/workflows/         test.yml (tests en cada push/PR) y release.yml (publica una
 │                               versión al subir un tag vX.Y.Z); notas de cada versión en
@@ -273,8 +291,28 @@ parámetro, así que sus tests las ejecutan contra respuestas simuladas, sin red
 Si tocas algo de `lib/` (o de la lógica de suscripciones/fechas en general), ejecuta `npm test`
 antes de dar el cambio por bueno.
 
+### Tests de la interfaz (de principio a fin)
+
+```bash
+npm run test:e2e
+```
+
+Arrancan la app real (Electron) con una carpeta de datos temporal y un TMDB falso servido en local
+(sin red ni clave), y la manejan a través de su ventana con el protocolo de DevTools de Chrome, como
+lo haría una persona: elegir perfil, que un pendiente llegue a una plataforma que pagas (aviso,
+cambio de plataforma y deshacer), episodio nuevo en Viendo, filtros, añadir un título, importar un
+historial, resumen, planificador, listas para compartir, calendario, las protecciones de la
+ventana, cerrar a la bandeja y el arranque oculto con Windows. También fallan si aparece cualquier
+error en la consola. Están en `e2e/` (`harness.js` es la parte que lanza y maneja la app).
+
+Para esto la app tiene un modo de prueba que solo se activa con la variable de entorno
+`PELICULAS_E2E=1`: los avisos de Windows se escriben en la salida en lugar de mostrarse, y
+`PELICULAS_TMDB_API_URL` apunta las llamadas a TMDB al servidor falso.
+
 **Se ejecutan solos en cada `push`/PR** vía GitHub Actions (`.github/workflows/test.yml`, ver el
-badge arriba del todo) — no dependen de que alguien se acuerde de correrlos a mano.
+badge arriba del todo; los de la interfaz en una máquina Windows) — no dependen de que alguien se
+acuerde de correrlos a mano. El workflow de publicación también los pasa todos antes de generar el
+instalador.
 
 ---
 
@@ -506,7 +544,8 @@ usuario tiene su propia subcarpeta:
 ```
 %APPDATA%\peliculas-app\
 ├── profiles.json           Lista de perfiles (nombre, color) y cuál fue el último activo.
-├── global-settings.json    Clave de TMDB (compartida entre perfiles, cifrada con tu usuario de Windows).
+├── global-settings.json    Clave de TMDB (compartida entre perfiles, cifrada con tu usuario de Windows)
+│                           y las opciones de segundo plano (bandeja, abrir al iniciar Windows).
 ├── deleted-profiles.json   Registro de los perfiles eliminados en los últimos 30 días.
 ├── deleted-profiles\       Carpetas de esos perfiles eliminados, a la espera de restaurarse.
 └── profiles\

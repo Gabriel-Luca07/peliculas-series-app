@@ -1,6 +1,6 @@
-// Theme, accent/density/motion, behavior preferences and dashboard-panel
-// visibility settings. Plain global-scope script — see updater.js for the
-// load-order note.
+// Theme, accent/density/motion, behavior preferences, background (tray and
+// start with Windows) and dashboard-panel visibility settings. Plain
+// global-scope script — see updater.js for the load-order note.
 
 /* ---------- Theme ---------- */
 
@@ -110,6 +110,31 @@ function initBehaviorPrefs() {
   $('#sort-vistas').value = sortVistas;
 }
 
+/* ---------- Background (tray, start with Windows) ---------- */
+
+// These are app-wide (global-settings.json in main.js), not per profile.
+function applyBackgroundSettings(bg) {
+  $('#bg-close-to-tray-toggle').checked = bg.closeToTray;
+  $('#bg-open-at-login-toggle').checked = bg.openAtLogin;
+  $('#bg-open-at-login-toggle').disabled = !bg.canOpenAtLogin;
+  $('#bg-open-at-login-help').textContent = bg.canOpenAtLogin
+    ? 'Usa el último perfil con el que entraste.'
+    : 'Solo disponible en la app instalada (o portable), no en modo desarrollo.';
+}
+
+async function initBackgroundSettings() {
+  applyBackgroundSettings(await window.api.getBackgroundSettings());
+}
+
+function bindBackgroundSettingsEvents() {
+  $('#bg-close-to-tray-toggle').addEventListener('change', async (e) => {
+    applyBackgroundSettings(await window.api.setBackgroundSettings({ closeToTray: e.target.checked }));
+  });
+  $('#bg-open-at-login-toggle').addEventListener('change', async (e) => {
+    applyBackgroundSettings(await window.api.setBackgroundSettings({ openAtLogin: e.target.checked }));
+  });
+}
+
 /* ---------- Dashboard panel visibility ---------- */
 
 const PANEL_KEYS = ['genres', 'platforms', 'ratings', 'activity', 'years', 'eras', 'recommendations', 'upcoming', 'pick'];
@@ -183,6 +208,7 @@ function addCustomPlatform(name) {
 
 
 function bindAppearanceEvents() {
+  bindBackgroundSettingsEvents();
   $('#btn-theme-toggle').addEventListener('click', toggleTheme);
   $$('.swatch[data-accent]').forEach((s) => s.addEventListener('click', () => setAccent(s.dataset.accent)));
   $$('.swatch[data-chart-color]').forEach((s) => s.addEventListener('click', () => setChartColor(s.dataset.chartColor)));

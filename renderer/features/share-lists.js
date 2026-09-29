@@ -11,99 +11,15 @@ let shareSearchTimer = null;
 const sharePagers = { rated: makePager(), pending: makePager(), discovery: makePager() };
 let sharePreviewSignature = null;
 
-function toShareItem(m, source) {
-  if (m.mediaType) {
-    return { tmdbId: m.tmdbId, title: m.title, year: m.year, poster: m.poster, type: m.mediaType === 'tv' ? 'serie' : 'pelicula', source };
-  }
-  return { tmdbId: m.tmdbId || null, title: m.title, year: m.year, poster: m.poster, type: m.type, source };
-}
-
+// pickShareItems (lib/pool-logic.js) does the selection.
 function buildShareList(options) {
-  const wantMovie = options.types.has('pelicula');
-  const wantTv = options.types.has('serie');
-  const typeMatches = (m) => (m.type === 'pelicula' && wantMovie) || (m.type === 'serie' && wantTv);
-  const genreMatches = (m) => !options.genres.size || (m.genres || []).some((g) => options.genres.has(g));
-  const platformMatches = (m) => !options.platforms.size || options.platforms.has(m.platform);
-
-  const libraryTmdbIds = new Set(movies.filter((m) => m.tmdbId).map((m) => m.tmdbId));
-
-  const ratedPool = options.useRated
-    ? getWatched().filter((m) => m.rating && m.tmdbId && typeMatches(m) && genreMatches(m) && platformMatches(m)).sort((a, b) => b.rating - a.rating)
-    : [];
-
-  let pendingPool = [];
-  if (options.usePending) {
-    const genreWeight = {};
-    getWatched().filter((m) => m.rating).forEach((m) => {
-      (m.genres || []).forEach((g) => { genreWeight[g] = (genreWeight[g] || 0) + m.rating; });
-    });
-    pendingPool = getPending()
-      .filter((m) => m.tmdbId && typeMatches(m) && genreMatches(m) && platformMatches(m))
-      .map((m) => ({ m, score: (m.genres || []).reduce((s, g) => s + (genreWeight[g] || 0), 0) }))
-      .sort((a, b) => b.score - a.score)
-      .map((x) => x.m);
-  }
-
-  let discoveryPool = [];
-  if (options.useDiscovery) {
-    discoveryPool = [
-      ...(wantMovie ? recommendationsMoviePool || [] : []),
-      ...(wantTv ? recommendationsTvPool || [] : []),
-    ].filter((r) => !libraryTmdbIds.has(r.tmdbId));
-  }
-
-  const hasMajoritySource = options.useRated || options.usePending;
-  const discoveryQuota = options.useDiscovery && discoveryPool.length
-    ? (hasMajoritySource ? Math.max(1, Math.round(options.count * 0.2)) : options.count)
-    : 0;
-  const majorityQuota = options.count - discoveryQuota;
-  let ratedQuota = 0;
-  let pendingQuota = 0;
-  if (options.useRated && options.usePending) {
-    ratedQuota = Math.ceil(majorityQuota / 2);
-    pendingQuota = majorityQuota - ratedQuota;
-  } else if (options.useRated) {
-    ratedQuota = majorityQuota;
-  } else if (options.usePending) {
-    pendingQuota = majorityQuota;
-  }
-
-  const usedIds = new Set();
-  const picks = [];
-  function take(pool, pager, quota, source) {
-    if (!pool.length || quota <= 0) return;
-    const page = nextPoolPage(pool, pager, Math.min(quota, pool.length));
-    page.forEach((m) => {
-      if (m.tmdbId && usedIds.has(m.tmdbId)) return;
-      if (m.tmdbId) usedIds.add(m.tmdbId);
-      picks.push(toShareItem(m, source));
-    });
-  }
-  take(ratedPool, sharePagers.rated, ratedQuota, 'rated');
-  take(pendingPool, sharePagers.pending, pendingQuota, 'pending');
-  take(discoveryPool, sharePagers.discovery, discoveryQuota, 'discovery');
-
-  let shortfall = options.count - picks.length;
-  if (shortfall > 0) {
-    const extras = [
-      [ratedPool, sharePagers.rated, 'rated'],
-      [pendingPool, sharePagers.pending, 'pending'],
-      [discoveryPool, sharePagers.discovery, 'discovery'],
-    ];
-    for (const [pool, pager, source] of extras) {
-      if (shortfall <= 0) break;
-      if (!pool.length) continue;
-      const extra = nextPoolPage(pool, pager, Math.min(shortfall, pool.length)).filter((m) => !usedIds.has(m.tmdbId));
-      extra.forEach((m) => {
-        if (shortfall <= 0) return;
-        usedIds.add(m.tmdbId);
-        picks.push(toShareItem(m, source));
-        shortfall--;
-      });
-    }
-  }
-
-  return shuffle(picks).slice(0, options.count);
+  return pickShareItems(options, {
+    watched: getWatched(),
+    pending: getPending(),
+    libraryTmdbIds: new Set(movies.filter((m) => m.tmdbId).map((m) => m.tmdbId)),
+    discoveryMovies: recommendationsMoviePool,
+    discoveryTv: recommendationsTvPool,
+  }, sharePagers);
 }
 
 function openShareConfigModal() {

@@ -4,38 +4,8 @@
 
 /* ---------- Recommendations ---------- */
 
-function shuffle(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-function makePager() {
-  return { shuffled: null, cursor: 0 };
-}
 const moviePager = makePager();
 const tvPager = makePager();
-
-function nextPoolPage(pool, pager, count) {
-  if (!pool || !pool.length || count <= 0) return [];
-  if (pool.length <= count) return shuffle(pool);
-  if (!pager.shuffled || pager.cursor >= pager.shuffled.length) {
-    pager.shuffled = shuffle(pool);
-    pager.cursor = 0;
-  }
-  let page = pager.shuffled.slice(pager.cursor, pager.cursor + count);
-  pager.cursor += count;
-  if (page.length < count) {
-    const remaining = pool.filter((r) => !page.some((p) => p.tmdbId === r.tmdbId));
-    page = page.concat(shuffle(remaining).slice(0, count - page.length));
-    pager.shuffled = null;
-    pager.cursor = 0;
-  }
-  return page;
-}
 
 function nextRecommendationsPage() {
   const tvCount = recommendationsTvPool && recommendationsTvPool.length

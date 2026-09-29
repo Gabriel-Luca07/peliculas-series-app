@@ -17,3 +17,15 @@ jobs:
       # lib/ and test/ have zero npm dependencies (only node: built-ins and
       # each other), so no `npm install` is needed just to run the tests.
       - run: node --test
+
+  # The real app, driven through its window (e2e/). Needs a desktop, so Windows.
+  e2e:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:e2e
