@@ -87,6 +87,9 @@ function initBehaviorPrefs() {
   const recsEnabled = localStorage.getItem(pk('pref-recs-enabled')) !== 'false';
   const annivEnabled = localStorage.getItem(pk('pref-anniv-enabled')) !== 'false';
   const followupsNotify = localStorage.getItem(pk('pref-followups-notify')) !== 'false';
+  const availabilityNotify = localStorage.getItem(pk('pref-availability-notify')) !== 'false';
+  const autoPlatform = localStorage.getItem(pk('pref-auto-platform')) !== 'false';
+  const episodesNotify = localStorage.getItem(pk('pref-episodes-notify')) !== 'false';
 
   $('#pref-start-view').value = startView;
   $('#pref-sort-pendientes').value = sortPendientes;
@@ -96,6 +99,9 @@ function initBehaviorPrefs() {
   $('#pref-recs-toggle').checked = recsEnabled;
   $('#pref-anniv-toggle').checked = annivEnabled;
   $('#pref-followups-notify-toggle').checked = followupsNotify;
+  $('#pref-availability-notify-toggle').checked = availabilityNotify;
+  $('#pref-auto-platform-toggle').checked = autoPlatform;
+  $('#pref-episodes-notify-toggle').checked = episodesNotify;
 
   PAGE_SIZE = pageSize;
   pendientesPageSize = PAGE_SIZE;
@@ -218,6 +224,16 @@ function bindAppearanceEvents() {
   $('#pref-followups-notify-toggle').addEventListener('change', (e) => {
     localStorage.setItem(pk('pref-followups-notify'), String(e.target.checked));
   });
+  $('#pref-availability-notify-toggle').addEventListener('change', (e) => {
+    localStorage.setItem(pk('pref-availability-notify'), String(e.target.checked));
+  });
+  $('#pref-auto-platform-toggle').addEventListener('change', (e) => {
+    localStorage.setItem(pk('pref-auto-platform'), String(e.target.checked));
+    if (e.target.checked) onActiveSubscriptionsChanged();
+  });
+  $('#pref-episodes-notify-toggle').addEventListener('change', (e) => {
+    localStorage.setItem(pk('pref-episodes-notify'), String(e.target.checked));
+  });
   $$('.panel-toggle').forEach((toggle) => {
     toggle.addEventListener('change', (e) => {
       setPanelVisibility(toggle.dataset.panel, e.target.checked);
@@ -330,5 +346,36 @@ function bindAppearanceEvents() {
 
     status.classList.remove('error');
     status.textContent = `Copia importada correctamente (${applyRes.counts.movies} títulos).`;
+    loadFollowups();
+  });
+
+  // Unlike "Importar", only the titles are taken from the file, merged into
+  // the current list (mergeBackupMovies in lib/merge-logic.js): nothing else
+  // of this profile is replaced.
+  $('#btn-import-merge').addEventListener('click', async () => {
+    const status = $('#backup-status');
+    const res = await window.api.importData();
+    if (res.canceled) return;
+    if (res.error) {
+      status.classList.add('error');
+      status.textContent = 'El archivo seleccionado no es una copia de seguridad válida.';
+      return;
+    }
+    const preview = mergeBackupMovies(movies, res.payload.movies, uid);
+    if (!preview.added && !preview.updated) {
+      status.classList.remove('error');
+      status.textContent = 'Tu lista ya tiene todo lo que trae ese archivo.';
+      return;
+    }
+    if (!confirm(`Se añadirán ${preview.added} título${preview.added === 1 ? '' : 's'} que no tenías y se completarán ${preview.updated} que ya tenías`
+      + (preview.unchanged ? ` (${preview.unchanged} sin cambios)` : '')
+      + '. El resto de tu perfil (ajustes, suscripciones, papelera...) no se toca. ¿Continuar?')) return;
+
+    movies = preview.movies;
+    await saveMovies();
+    renderAll();
+    status.classList.remove('error');
+    status.textContent = `Fusión completa: ${preview.added} añadido${preview.added === 1 ? '' : 's'}, ${preview.updated} completado${preview.updated === 1 ? '' : 's'}.`;
+    loadFollowups();
   });
 }

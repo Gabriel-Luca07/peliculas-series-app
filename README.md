@@ -34,10 +34,17 @@ Construida con [Electron](https://www.electronjs.org/) y JavaScript "vanilla" (s
   serie ("T2 · E5/9": el total de episodios de la temporada sale de TMDB) y botones para sumar un
   episodio o marcarlo como visto. Al acabar una temporada pasa sola a la siguiente si ya está
   estrenada; al ponerte al día te ofrece marcar la serie como vista. Cada +1 se puede deshacer.
+  Cuando sale un **episodio nuevo** de una serie que estás viendo, su tarjeta lo marca ("Nuevo:
+  T3 · E5") y te llega un aviso de Windows (desactivable en Ajustes → Comportamiento).
 - Progreso de series por temporada y episodio.
 - Marcar una película/serie como vista con un clic desde la propia lista (sin abrir el formulario).
 - Volver a marcar como vista ("rewatch") llevando la cuenta de cuántas veces la has visto.
-- Añadir varias películas ya vistas de golpe (para volcar tu historial de un tirón) o importar tu historial de visionado desde un CSV de Netflix.
+- Añadir varias películas ya vistas de golpe (para volcar tu historial de un tirón) o importar tu
+  historial desde **Netflix, Letterboxd, IMDb o Trakt** (el formato se reconoce solo; valoraciones,
+  fechas y etiquetas incluidas, y las watchlists entran como pendientes). Lo que ya tienes en tu
+  lista no se duplica: se completa.
+- **Etiquetas propias** ("halloween", "con Ana"...) en cada título, con su filtro en Pendientes y
+  Vistas; la búsqueda global (Ctrl+K) también encuentra por etiqueta.
 - Selección múltiple: marca varias tarjetas a la vez para cambiarles la plataforma o enviarlas a la papelera juntas.
 - Papelera con recuperación durante 30 días antes de borrarse para siempre.
 
@@ -51,6 +58,11 @@ Construida con [Electron](https://www.electronjs.org/) y JavaScript "vanilla" (s
   "más de lo mismo"), con una pequeña cuota de series entre las películas. El botón de recargar
   muestra selecciones distintas cada vez, sin repetirse hasta agotar las opciones disponibles.
 - Panel de "Próximos estrenos" con la fecha del próximo episodio de todas tus series con datos de TMDB.
+- **Pendientes disponibles en tus plataformas**: la app mira cada día en TMDB dónde se puede ver cada
+  pendiente y, cuando uno pasa a estar incluido en una suscripción que tienes activa, te avisa (aviso
+  de Windows + apartado Novedades), le cambia la plataforma a esa (con opción de deshacerlo, y
+  desactivable) y lo marca en su tarjeta ("En tu HBO Max"). En Pendientes puedes filtrar por "En mis
+  suscripciones activas" para ver solo lo que puedes ver ya sin pagar nada más.
 - Apartado **Novedades**: avisa cuando una serie que ya has visto saca temporada nueva (o la tiene
   anunciada, con su fecha si ya la hay) y cuando una película que has visto tiene continuación
   (siguiente parte de la misma saga en TMDB, estrenada o por estrenar). Desde ahí puedes pasar la
@@ -141,10 +153,16 @@ PeliculasApp/
 │   └── fonts/                  Tipografía Inter empaquetada localmente (funciona sin internet).
 │
 ├── lib/                       Lógica compartida sin Electron ni DOM (fechas, ciclo de
-│                               suscripciones, importación CSV, validación de perfiles) — la
-│                               usan tanto main.js como renderer.js, y es lo que cubren los tests.
+│                               suscripciones, importación de historiales y fusión de listas,
+│                               filtros de las listas, novedades y disponibilidad, llamadas a
+│                               TMDB, validación de perfiles) — la usan main.js y el renderer, y es
+│                               lo que cubren los tests.
 │
 ├── test/                      Tests automatizados (`npm test`), uno por archivo de `lib/`.
+│
+├── .github/workflows/         test.yml (tests en cada push/PR) y release.yml (publica una
+│                               versión al subir un tag vX.Y.Z); notas de cada versión en
+│                               .github/release-notes/.
 │
 ├── build/
 │   ├── icon.ico                Icono de la app para Windows (varios tamaños).
@@ -243,11 +261,14 @@ npm test
 ```
 
 La lógica más delicada (fechas y "hoy" en hora local, ciclo de suscripciones — auto-renovación,
-solapes, días restantes —, importación de CSV, validación de perfiles y detección de temporadas
-nuevas/secuelas) está separada en `lib/`,
+solapes, días restantes —, importación de historiales de Netflix/Letterboxd/IMDb/Trakt y fusión
+sin duplicados, filtros de las listas, validación de perfiles, detección de temporadas
+nuevas/secuelas/episodios, pendientes disponibles en tus plataformas y todas las llamadas a TMDB)
+está separada en `lib/`,
 sin nada de Electron ni de DOM, para poder testearla de forma aislada. Se ejecuta con el propio
 test runner de Node (`node --test`), sin añadir ninguna librería nueva. Los tests viven en `test/`,
-uno por archivo de `lib/`.
+uno por archivo de `lib/`. Las llamadas a TMDB (`lib/tmdb-api.js`) reciben el `fetch` como
+parámetro, así que sus tests las ejecutan contra respuestas simuladas, sin red ni clave.
 
 Si tocas algo de `lib/` (o de la lógica de suscripciones/fechas en general), ejecuta `npm test`
 antes de dar el cambio por bueno.
@@ -287,6 +308,21 @@ después (`postdist`, ver `scripts/rename-release-assets.js`) una copia de cada 
 con los espacios ya cambiados por guiones — **sube esos archivos con guiones** (y `latest.yml`) a la
 Release, no los que tienen espacios.
 
+### Publicar una versión (automático)
+
+No hace falta generar el instalador a mano para publicar: al subir un tag `vX.Y.Z` a GitHub, el
+workflow `.github/workflows/release.yml` pasa los tests, comprueba que el tag coincide con la
+versión de `package.json`, genera el instalador y la portable en una máquina Windows de GitHub y
+crea la Release con los archivos ya con guiones y `latest.yml`. Las notas salen de
+`.github/release-notes/vX.Y.Z.md` si existe (es lo que la app enseña en "Ver novedades").
+
+```bash
+# 1. Sube la versión en package.json y escribe .github/release-notes/vX.Y.Z.md
+git commit -am "Versión X.Y.Z"
+git tag vX.Y.Z
+git push && git push origin vX.Y.Z
+```
+
 ---
 
 ## Conectar con TMDB
@@ -300,6 +336,11 @@ Release, no los que tienen espacios.
 
 Sin clave de TMDB la app sigue funcionando con normalidad para llevar tu lista de forma manual;
 simplemente no tendrás esas funciones adicionales.
+
+La clave se guarda **cifrada con tu usuario de Windows**, así que copiar la carpeta de datos (o una
+copia de seguridad) a otro sitio no la deja a la vista. En otro ordenador u otro usuario de Windows
+hay que volver a pegarla. Si TMDB no responde en 10 segundos, la petición se da por fallida (como
+si no hubiera conexión) en lugar de quedarse cargando.
 
 ---
 
@@ -383,6 +424,14 @@ real de TMDB para esa plataforma) en vez de recomendaciones genéricas — así 
 tiempo que la tienes contratada. Al abrir la configuración de una lista en Recomendar, la
 plataforma activa aparece ya marcada por ti.
 
+**Te avisa de lo que ya puedes ver con lo que pagas**: cada día se comprueba en TMDB en qué
+plataformas está cada pendiente. Cuando uno pasa a estar incluido en una suscripción activa, te
+llega un aviso de Windows, aparece en Novedades → "Pendientes disponibles en tus plataformas" y su
+plataforma se cambia sola a esa (desde Novedades puedes deshacer el cambio, y ese título ya no se
+vuelve a cambiar solo; en Ajustes → Comportamiento se pueden desactivar tanto los avisos como el
+cambio automático). Al activar una plataforma nueva, la app te dice en el momento cuántos de tus
+pendientes están en ella.
+
 **Historial de gasto**: queda un registro **desde el instante en que activas** una plataforma, no
 solo cuando la cancelas — así ves ahí mismo tanto lo que sigues pagando ahora como lo que ya
 canceladas en el pasado. Cada entrada muestra el coste completo de ese periodo tal cual lo tenías
@@ -442,6 +491,11 @@ suscripciones, listas de Recomendar, apariencia), usa Exportar en el ordenador d
 Importar en el de destino (creando antes un perfil ahí), o copia manualmente la carpeta del perfil
 completa de un ordenador a otro (ver más abajo).
 
+Si en el destino ya tienes títulos que no quieres perder, usa **"Fusionar con mi lista"** en vez de
+Importar: solo añade los títulos que te falten y completa los que ya tienes (si en un lado está
+vista y en el otro pendiente, gana la vista con su valoración y fecha), sin tocar ajustes,
+suscripciones ni papelera. Sirve también para juntar dos perfiles en uno.
+
 ---
 
 ## Dónde se guardan tus datos
@@ -452,7 +506,7 @@ usuario tiene su propia subcarpeta:
 ```
 %APPDATA%\peliculas-app\
 ├── profiles.json           Lista de perfiles (nombre, color) y cuál fue el último activo.
-├── global-settings.json    Clave de TMDB (compartida entre perfiles).
+├── global-settings.json    Clave de TMDB (compartida entre perfiles, cifrada con tu usuario de Windows).
 ├── deleted-profiles.json   Registro de los perfiles eliminados en los últimos 30 días.
 ├── deleted-profiles\       Carpetas de esos perfiles eliminados, a la espera de restaurarse.
 └── profiles\

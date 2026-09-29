@@ -906,6 +906,7 @@ main {
 .followup-state.released { background: rgba(var(--accent-rgb), 0.16); color: var(--accent); }
 .followup-state.upcoming { color: var(--series-1); }
 .followup-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.followup-item.is-new { background: rgba(var(--accent-rgb), 0.06); }
 
 .card {
   position: relative;
@@ -1059,6 +1060,9 @@ main {
 .badge.rating { background: rgba(237,161,0,0.14); color: var(--star); }
 .badge.platform { background: rgba(224,85,63,0.14); color: var(--accent-hover); }
 .badge.viendo { background: rgba(57,135,229,0.14); color: var(--series-1); }
+.badge.new-episode { background: rgba(var(--accent-rgb), 0.16); color: var(--accent); font-weight: 600; }
+.badge.available { background: rgba(27,175,122,0.15); color: #1baf7a; font-weight: 600; }
+.badge.tag { background: transparent; border: 1px solid var(--border); color: var(--text-muted); }
 
 .inline-links { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .btn-link {

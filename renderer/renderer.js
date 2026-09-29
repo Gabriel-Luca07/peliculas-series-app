@@ -35,9 +35,12 @@ const PROVIDER_NAME_MAP = {
   'Movistar Plus': 'Movistar Plus+',
 };
 
+// TMDB also lists the ad-supported plans as separate providers ("Netflix
+// basic with Ads", "Amazon Prime Video with Ads"): they're the same platform.
 function normalizeProviderName(name) {
-  if (PROVIDER_NAME_MAP[name]) return PROVIDER_NAME_MAP[name];
-  const found = PLATFORMS.find((p) => p.toLowerCase() === name.toLowerCase());
+  const base = String(name).replace(/\s+(basic|standard)?\s*with\s+ads$/i, '').trim();
+  if (PROVIDER_NAME_MAP[base]) return PROVIDER_NAME_MAP[base];
+  const found = PLATFORMS.find((p) => p.toLowerCase() === base.toLowerCase());
   return found || null;
 }
 
@@ -132,11 +135,12 @@ async function init() {
   if (localStorage.getItem(pk('pref-recs-enabled')) !== 'false') loadRecommendations();
   loadUpcomingReleases();
   loadFollowups();
+  startFollowupsAutoRefresh();
   loadProviderLogos();
   window.api.getAppVersion().then((v) => { $('#app-version').textContent = `v${v}`; });
   updateProfileBadge();
   initAutoUpdater();
-  // Clicking a system notification (e.g. from Novedades) opens its view.
+  // Clicking a system notification (e.g. from Novedades or Viendo) opens its view.
   window.api.onNavigate((view) => switchView(view));
 }
 

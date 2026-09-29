@@ -1,0 +1,65 @@
+name: Release
+
+# Pushing a tag like v1.10.0 builds the Windows installer and the portable
+# version on GitHub's own machines and publishes them as a GitHub Release, so
+# releasing no longer depends on the tools installed on one computer.
+# Release notes come from .github/release-notes/<tag>.md when that file
+# exists (they're what the app shows in "Ver novedades"); otherwise GitHub
+# generates them from the commits.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Tests
+        run: node --test
+
+      - name: Tag matches package.json version
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "The tag $GITHUB_REF_NAME doesn't match package.json ($version)."
+            exit 1
+          fi
+
+      - run: npm ci
+
+      # postdist (scripts/rename-release-assets.js) copies the files to the
+      # hyphenated names latest.yml expects; uploading the space-named ones
+      # breaks the auto-updater.
+      - name: Build installer and portable
+        run: npm run dist -- --publish never
+
+      - name: Publish the GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          notes=".github/release-notes/${GITHUB_REF_NAME}.md"
+          if [ -f "$notes" ]; then notes_args=(--notes-file "$notes"); else notes_args=(--generate-notes); fi
+          gh release create "$GITHUB_REF_NAME" \
+            "release/Peliculas-y-Series-Setup-${version}.exe" \
+            "release/Peliculas-y-Series-Setup-${version}.exe.blockmap" \
+            "release/Peliculas-y-Series-${version}.exe" \
+            release/latest.yml \
+            --title "$GITHUB_REF_NAME" "${notes_args[@]}"
+
+      - name: Check the installer can be downloaded
+        shell: bash
+        run: |
+          curl -fsIL "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/Peliculas-y-Series-Setup-${GITHUB_REF_NAME#v}.exe" > /dev/null

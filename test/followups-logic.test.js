@@ -1,6 +1,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { releaseState, findNewSeasons, findSequels, sortByRelease, pickNotifications } = require('../lib/followups-logic');
+const {
+  releaseState, findNewSeasons, findSequels, sortByRelease, pickNotifications, shiftDateString, recentUnwatchedEpisode,
+} = require('../lib/followups-logic');
 
 const TODAY = '2026-09-29';
 
@@ -136,5 +138,36 @@ test('pickNotifications', async (t) => {
   await t.test('keeps previously notified keys', () => {
     const res = pickNotifications([], ['old:1:released']);
     assert.deepEqual(res.notifiedKeys, ['old:1:released']);
+  });
+});
+
+test('shiftDateString', () => {
+  assert.equal(shiftDateString('2026-03-01', -1), '2026-02-28');
+  assert.equal(shiftDateString('2026-12-31', 1), '2027-01-01');
+});
+
+test('recentUnwatchedEpisode', async (t) => {
+  const ep = (airDate, seasonNumber, episodeNumber) => ({ airDate, seasonNumber, episodeNumber, name: null });
+
+  await t.test('an episode that aired this week and is not watched yet', () => {
+    const entry = { lastEpisode: ep('2026-09-27', 2, 5), nextEpisode: ep('2026-10-04', 2, 6) };
+    assert.deepEqual(recentUnwatchedEpisode({ currentSeason: 2, currentEpisode: 4 }, entry, TODAY), ep('2026-09-27', 2, 5));
+  });
+
+  await t.test('uses nextEpisode when the cache was refreshed before it aired', () => {
+    const entry = { lastEpisode: ep('2026-09-22', 2, 5), nextEpisode: ep('2026-09-29', 2, 6) };
+    assert.equal(recentUnwatchedEpisode({ currentSeason: 2, currentEpisode: 5 }, entry, TODAY).episodeNumber, 6);
+  });
+
+  await t.test('nothing when the progress already covers it', () => {
+    const entry = { lastEpisode: ep('2026-09-27', 2, 5) };
+    assert.equal(recentUnwatchedEpisode({ currentSeason: 2, currentEpisode: 5 }, entry, TODAY), null);
+    assert.equal(recentUnwatchedEpisode({ currentSeason: 3, currentEpisode: null }, entry, TODAY), null);
+  });
+
+  await t.test('nothing when it aired more than a week ago or has not aired', () => {
+    assert.equal(recentUnwatchedEpisode({}, { lastEpisode: ep('2026-09-20', 1, 1) }, TODAY), null);
+    assert.equal(recentUnwatchedEpisode({}, { nextEpisode: ep('2026-09-30', 1, 1) }, TODAY), null);
+    assert.equal(recentUnwatchedEpisode({}, null, TODAY), null);
   });
 });

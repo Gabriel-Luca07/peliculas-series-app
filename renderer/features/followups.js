@@ -1,12 +1,44 @@
-// "Novedades" tab: new seasons of series you've watched and sequels (next
-// parts of the same TMDB collection) of movies you've watched, plus a system
-// notification when something new shows up. TMDB data comes from the shared
-// cache in tmdb-cache.js; the matching itself lives in lib/followups-logic.js.
-// Plain global-scope script — see updater.js for the load-order note.
+// "Novedades" tab: pending titles that are included in a subscription you
+// have active, new seasons of series you've watched and sequels (next parts
+// of the same TMDB collection) of movies you've watched, plus system
+// notifications when something new shows up (also for new episodes of the
+// series in Viendo). TMDB data comes from the shared cache in tmdb-cache.js;
+// the matching itself lives in lib/followups-logic.js and
+// lib/availability-logic.js. Plain global-scope script — see updater.js for
+// the load-order note.
 
 /* ---------- Novedades ---------- */
 
+// While the app stays open, stale TMDB data is looked up again this often
+// (each kind of entry still has its own cache lifetime).
+const FOLLOWUPS_AUTO_REFRESH_MS = 3 * 60 * 60 * 1000;
+// Pending titles that reached one of your platforms count as "new" (badge
+// and highlight) for this many days.
+const AVAILABILITY_NEW_DAYS = 7;
+
 let followupsLoading = null;
+
+function readStoredJson(key, fallback) {
+  try {
+    const value = JSON.parse(localStorage.getItem(pk(key)) || 'null');
+    return value === null ? fallback : value;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStoredJson(key, value) {
+  localStorage.setItem(pk(key), JSON.stringify(value));
+}
+
+// Windows notification body: at most three lines plus "...y N más".
+function notificationBody(lines) {
+  return lines.length > 3 ? `${lines.slice(0, 3).join('\n')}\n...y ${lines.length - 3} más` : lines.join('\n');
+}
+
+function isPrefOn(key) {
+  return localStorage.getItem(pk(key)) !== 'false';
+}
 
 function readDismissedFollowups() {
   try {
@@ -26,12 +58,18 @@ function watchedWithTmdb(type) {
   return getWatched().filter((m) => m.type === type && m.tmdbId);
 }
 
-// Fetches whatever TMDB data is missing or stale for the watched titles (and
-// the series in progress, whose season lengths the Viendo tab uses).
+// Fetches whatever TMDB data is missing or stale for the watched titles, the
+// series in progress (season lengths and new episodes for Viendo) and where
+// each pending title streams.
 async function refreshFollowupsData(force) {
   const series = movies.filter((m) => m.type === 'serie' && m.tmdbId && (m.status === 'vista' || m.status === 'viendo'));
   const films = watchedWithTmdb('pelicula');
-  await Promise.all([refreshTvDetails(series, force), refreshMovieDetails(films, force)]);
+  const pending = getPending().filter((m) => m.tmdbId);
+  await Promise.all([
+    refreshTvDetails(series, force),
+    refreshMovieDetails(films, force),
+    refreshProviders(pending, force),
+  ]);
 
   const cache = tmdbCache();
   const collectionIds = [...new Set(films
@@ -98,6 +136,10 @@ function computeFollowups() {
 }
 
 async function loadFollowups(force = false) {
+  if (!settings.tmdbApiKey) {
+    renderFollowups();
+    return null;
+  }
   if (followupsLoading) return followupsLoading;
   followupsLoading = (async () => {
     $('#followups-loading').classList.remove('hidden');
@@ -107,12 +149,182 @@ async function loadFollowups(force = false) {
       $('#followups-loading').classList.add('hidden');
       followupsLoading = null;
     }
+    const switched = await syncAvailability();
+    const fresh = trackAvailability(availabilityMatches());
+    if (switched.length) fillPlatformSelects();
     renderFollowups();
-    // Season lengths may have just arrived for the series in progress.
+    // Season lengths, new episodes and availability may have just arrived.
     renderViendo();
+    renderPendientes();
     notifyNewFollowups();
+    notifyAvailability(fresh, new Set(switched.map((m) => m.id)));
+    notifyNewEpisodes();
   })();
   return followupsLoading;
+}
+
+function startFollowupsAutoRefresh() {
+  setInterval(() => {
+    loadFollowups();
+    loadUpcomingReleases();
+  }, FOLLOWUPS_AUTO_REFRESH_MS);
+}
+
+/* ---------- Pendientes en tus plataformas ---------- */
+
+function availabilityMatches() {
+  const ignored = new Set(readStoredJson('availability-ignored', []));
+  return matchPendingToSubscriptions(getPending(), activeSubscriptionPlatforms(), ignored);
+}
+
+// Copies what TMDB says about where each pending title streams onto the
+// title (availableOn) and, unless turned off in Ajustes, points its platform
+// at the active subscription that includes it (remembering the old one so
+// Novedades can undo it). Saves only if something changed. Returns the titles
+// whose platform was switched.
+async function syncAvailability() {
+  const cache = tmdbCache();
+  let changed = false;
+  getPending().forEach((m) => {
+    if (!m.tmdbId) return;
+    const entry = cache[providersKey(m)];
+    if (!entry) return;
+    const availableOn = streamingPlatformsFor(entry.providers, normalizeProviderName);
+    if (JSON.stringify(availableOn) !== JSON.stringify(m.availableOn || [])) {
+      m.availableOn = availableOn;
+      changed = true;
+    }
+  });
+
+  const switched = [];
+  if (isPrefOn('pref-auto-platform')) {
+    const log = readStoredJson('availability-switched', {});
+    availabilityMatches().forEach((match) => {
+      if (!match.newPlatform) return;
+      const movie = movies.find((m) => m.id === match.movieId);
+      log[movie.id] = { from: movie.platform || '', to: match.newPlatform, date: todayLocalDateString() };
+      movie.platform = match.newPlatform;
+      switched.push(movie);
+      changed = true;
+    });
+    if (switched.length) writeStoredJson('availability-switched', log);
+  }
+  if (changed) await saveMovies();
+  return switched;
+}
+
+// Remembers the day each (title, platform) was first seen available and
+// returns the matches that weren't there on the previous check.
+function trackAvailability(matches) {
+  const seen = readStoredJson('availability-seen', {});
+  const { toNotify, notifiedKeys } = pickAvailabilityNotifications(matches, Object.keys(seen));
+  const today = todayLocalDateString();
+  const next = {};
+  notifiedKeys.forEach((k) => { next[k] = seen[k] || today; });
+  writeStoredJson('availability-seen', next);
+  return toNotify;
+}
+
+function notifyAvailability(fresh, switchedIds) {
+  if (!fresh.length || !isPrefOn('pref-availability-notify')) return;
+  const lines = fresh.map((match) => {
+    const movie = movies.find((m) => m.id === match.movieId);
+    return `${movie ? movie.title : '?'}: incluida en ${match.platforms[0]}${switchedIds.has(match.movieId) ? ' (plataforma actualizada)' : ''}`;
+  });
+  const title = fresh.length === 1
+    ? 'Un pendiente ya está en tus plataformas'
+    : `${fresh.length} pendientes ya están en tus plataformas`;
+  window.api.notify(title, notificationBody(lines), 'novedades');
+}
+
+// After activating (or losing) a subscription: look up whatever availability
+// is missing and tell the user in the app itself what they can now watch
+// (those don't raise a Windows notification later).
+async function onActiveSubscriptionsChanged() {
+  if (!settings.tmdbApiKey) return;
+  await refreshProviders(getPending().filter((m) => m.tmdbId));
+  const switched = await syncAvailability();
+  const fresh = trackAvailability(availabilityMatches());
+  if (switched.length) fillPlatformSelects();
+  renderFollowups();
+  renderPendientes();
+  renderViendo();
+  if (fresh.length) {
+    const platforms = [...new Set(fresh.map((m) => m.platforms[0]))].join(', ');
+    showToast(`${fresh.length} ${pluralize(fresh.length, 'pendiente')} ya ${fresh.length === 1 ? 'está' : 'están'} en ${platforms}`, 'success', {
+      actions: [{ label: 'Ver', onAction: () => switchView('novedades') }],
+      duration: 6000,
+    });
+  }
+}
+
+// Puts back the platform a title had before it was switched automatically,
+// and stops switching that title to any of the platforms it's on now.
+async function undoPlatformSwitch(movieId, platformsNow) {
+  const log = readStoredJson('availability-switched', {});
+  const entry = log[movieId];
+  const movie = movies.find((m) => m.id === movieId);
+  if (!entry || !movie) return;
+  movie.platform = entry.from;
+  delete log[movieId];
+  writeStoredJson('availability-switched', log);
+  const ignored = new Set(readStoredJson('availability-ignored', []));
+  platformsNow.forEach((p) => ignored.add(`${movieId}:${p}`));
+  writeStoredJson('availability-ignored', [...ignored]);
+  await saveMovies();
+  renderAll();
+  showToast(`${movie.title}: vuelve a ${entry.from || 'sin plataforma'}`);
+}
+
+function computeAvailableItems() {
+  const seen = readStoredJson('availability-seen', {});
+  const log = readStoredJson('availability-switched', {});
+  const dismissed = readDismissedFollowups();
+  const newSince = shiftDateString(todayLocalDateString(), -AVAILABILITY_NEW_DAYS);
+  const items = [];
+  availabilityMatches().forEach((match) => {
+    const movie = movies.find((m) => m.id === match.movieId);
+    const key = `avail:${match.movieId}:${match.platforms[0]}`;
+    if (!movie || dismissed.has(key)) return;
+    const since = seen[`${match.movieId}:${match.platforms[0]}`] || null;
+    const switchEntry = log[movie.id];
+    items.push({
+      key,
+      movie,
+      platforms: match.platforms,
+      since,
+      isNew: !!since && since >= newSince,
+      switchedFrom: switchEntry && switchEntry.to === movie.platform ? switchEntry.from : null,
+    });
+  });
+  return items.sort((a, b) => (b.since || '').localeCompare(a.since || '') || a.movie.title.localeCompare(b.movie.title, 'es'));
+}
+
+/* ---------- Episodios nuevos (Viendo) ---------- */
+
+function computeNewEpisodes() {
+  const cache = tmdbCache();
+  const today = todayLocalDateString();
+  const items = [];
+  movies.filter((m) => m.status === 'viendo' && m.type === 'serie' && m.tmdbId).forEach((m) => {
+    const ep = recentUnwatchedEpisode(m, cache[`tv:${m.tmdbId}`], today);
+    if (!ep) return;
+    items.push({ key: `ep:${m.tmdbId}:${ep.seasonNumber}:${ep.episodeNumber}`, state: 'released', title: m.title, episode: ep });
+  });
+  return items;
+}
+
+// One notification per new episode of a series in Viendo (the very first
+// check only records what's there, like Novedades does).
+function notifyNewEpisodes() {
+  const items = computeNewEpisodes();
+  const stored = readStoredJson('episodes-notified', null);
+  const { toNotify, notifiedKeys } = pickNotifications(items, stored);
+  writeStoredJson('episodes-notified', notifiedKeys.slice(-500));
+  if (!toNotify.length || !isPrefOn('pref-episodes-notify')) return;
+  const lines = toNotify.map((i) => `${i.title}: T${i.episode.seasonNumber} · E${i.episode.episodeNumber} ya disponible`);
+  const title = toNotify.length === 1 ? 'Episodio nuevo de lo que estás viendo' : `${toNotify.length} episodios nuevos de lo que estás viendo`;
+  window.api.notify(title, notificationBody(lines), 'viendo');
 }
 
 /* ---------- Notificaciones ---------- */
@@ -142,12 +354,11 @@ function notifyNewFollowups() {
   }
   const { toNotify, notifiedKeys } = pickNotifications([...series, ...sequels], stored);
   localStorage.setItem(pk('followups-notified'), JSON.stringify(notifiedKeys));
-  if (!toNotify.length || localStorage.getItem(pk('pref-followups-notify')) === 'false') return;
+  if (!toNotify.length || !isPrefOn('pref-followups-notify')) return;
 
   const lines = toNotify.map(followupNotificationLine);
   const title = toNotify.length === 1 ? 'Novedad de algo que has visto' : `${toNotify.length} novedades de lo que has visto`;
-  const body = lines.length > 3 ? `${lines.slice(0, 3).join('\n')}\n...y ${lines.length - 3} más` : lines.join('\n');
-  window.api.notify(title, body, 'novedades');
+  window.api.notify(title, notificationBody(lines), 'novedades');
 }
 
 function formatFollowupDate(date) {
@@ -172,19 +383,42 @@ function updateFollowupsBadge(count) {
   badge.classList.toggle('hidden', !count);
 }
 
+function renderAvailableItems(available) {
+  $('#followups-available').innerHTML = available.map((a, i) => `
+    <div class="followup-item${a.isNew ? ' is-new' : ''}" data-key="${escapeHtml(a.key)}" style="animation-delay:${Math.min(i, 20) * 30}ms">
+      ${a.movie.poster ? `<img class="followup-poster" src="${escapeHtml(a.movie.poster)}" alt="">` : '<div class="followup-poster"></div>'}
+      <div class="followup-info">
+        <div class="followup-title">${escapeHtml(a.movie.title)}</div>
+        <div class="followup-sub">${TYPE_LABELS[a.movie.type] || TYPE_LABELS.pelicula} · incluida en ${escapeHtml(a.platforms.join(', '))}</div>
+        ${a.switchedFrom !== null ? `<div class="followup-sub">Plataforma cambiada a ${escapeHtml(a.movie.platform)}${a.switchedFrom ? ` (antes: ${escapeHtml(a.switchedFrom)})` : ''}</div>` : ''}
+        ${a.isNew ? `<span class="followup-state released">Nuevo${a.since ? ` · ${formatFollowupDate(a.since)}` : ''}</span>` : ''}
+      </div>
+      <div class="followup-actions">
+        ${a.switchedFrom !== null ? '<button class="btn followup-undo-platform" title="Volver a la plataforma que tenía">Deshacer cambio</button>' : ''}
+        <button class="btn followup-open" title="Abrir la ficha"><svg class="icon"><use href="#icon-play"></use></svg>Ver ficha</button>
+        <button class="icon-btn followup-dismiss" title="Descartar"><svg class="icon"><use href="#icon-x"></use></svg></button>
+      </div>
+    </div>
+  `).join('');
+}
+
 function renderFollowups() {
   const { series, sequels } = computeFollowups();
+  const available = computeAvailableItems();
   updateFollowupsBadge(series.filter((s) => s.state !== 'announced').length
-    + sequels.filter((s) => s.state !== 'announced').length);
+    + sequels.filter((s) => s.state !== 'announced').length
+    + available.filter((a) => a.isNew).length);
 
   const seriesEl = $('#followups-series');
   const sequelsEl = $('#followups-sequels');
+  $('#followups-available-section').classList.toggle('hidden', !available.length);
   $('#followups-series-section').classList.toggle('hidden', !series.length);
   $('#followups-sequels-section').classList.toggle('hidden', !sequels.length);
-  $('#followups-empty').classList.toggle('hidden', series.length > 0 || sequels.length > 0);
+  $('#followups-empty').classList.toggle('hidden', series.length > 0 || sequels.length > 0 || available.length > 0);
   $('#followups-empty').textContent = settings.tmdbApiKey
-    ? 'No hay novedades de lo que has visto. Aquí aparecerán las temporadas nuevas de tus series vistas y las secuelas de tus películas vistas (solo títulos con datos de TMDB).'
-    : 'Configura tu clave de TMDB en Ajustes para detectar temporadas nuevas y secuelas.';
+    ? 'No hay novedades. Aquí aparecerán tus pendientes que estén incluidos en alguna suscripción activa, las temporadas nuevas de tus series vistas y las secuelas de tus películas vistas (solo títulos con datos de TMDB).'
+    : 'Configura tu clave de TMDB en Ajustes para detectar temporadas nuevas, secuelas y pendientes disponibles en tus plataformas.';
+  renderAvailableItems(available);
 
   seriesEl.innerHTML = series.map((s, i) => `
     <div class="followup-item" data-key="${escapeHtml(s.key)}" style="animation-delay:${Math.min(i, 20) * 30}ms">
@@ -216,8 +450,19 @@ function renderFollowups() {
     </div>
   `).join('');
 
-  const byKey = new Map([...series, ...sequels].map((x) => [x.key, x]));
+  const byKey = new Map([...series, ...sequels, ...available].map((x) => [x.key, x]));
   const itemOf = (btn) => byKey.get(btn.closest('.followup-item').dataset.key);
+
+  $$('#view-novedades .followup-open').forEach((btn) => {
+    btn.addEventListener('click', () => openModal(itemOf(btn).movie.id));
+  });
+
+  $$('#view-novedades .followup-undo-platform').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const a = itemOf(btn);
+      undoPlatformSwitch(a.movie.id, a.platforms);
+    });
+  });
 
   $$('#view-novedades .followup-dismiss').forEach((btn) => {
     btn.addEventListener('click', () => {

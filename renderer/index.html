@@ -2,6 +2,11 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
+<!-- Only the app's own scripts may run; images can come from TMDB (or any
+     poster URL typed by hand), local files (avatars, shared lists) and
+     data:/blob: (the share-list canvas). Inline style attributes are used
+     for animation delays and colours, hence 'unsafe-inline' for styles only. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: http: data: blob: file:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Películas y Series</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -179,6 +184,7 @@
           </select>
           <select id="filter-platform"></select>
           <select id="filter-genre"></select>
+          <select id="filter-tag" class="hidden"></select>
           <select id="sort-pendientes">
             <option value="added-desc">Añadidas recientemente</option>
             <option value="added-asc">Añadidas hace más tiempo</option>
@@ -244,6 +250,7 @@
           </select>
           <select id="filter-platform-vistas"></select>
           <select id="filter-genre-vistas"></select>
+          <select id="filter-tag-vistas" class="hidden"></select>
           <select id="filter-rating-min">
             <option value="">Cualquier valoración</option>
             <option value="9">9 o más</option>
@@ -280,11 +287,16 @@
       <header class="view-header">
         <div>
           <h1>Novedades</h1>
-          <p class="subtitle">Temporadas nuevas de las series que has visto y continuaciones de las películas que has visto.</p>
+          <p class="subtitle">Pendientes que ya puedes ver en las plataformas que pagas, temporadas nuevas de las series que has visto y continuaciones de las películas que has visto.</p>
         </div>
         <button id="btn-refresh-followups" class="icon-btn" title="Buscar novedades ahora"><svg class="icon"><use href="#icon-repeat"></use></svg></button>
       </header>
       <p id="followups-loading" class="help hidden">Buscando novedades en TMDB...</p>
+      <div class="chart-card followups-card hidden" id="followups-available-section">
+        <h2><svg class="icon"><use href="#icon-ticket"></use></svg> Pendientes disponibles en tus plataformas</h2>
+        <p class="help">Lo que tienes pendiente y ya está incluido en alguna suscripción activa. Se comprueba en TMDB cada día.</p>
+        <div id="followups-available" class="followup-list"></div>
+      </div>
       <div class="chart-card followups-card hidden" id="followups-series-section">
         <h2><svg class="icon"><use href="#icon-tv"></use></svg> Series con temporadas nuevas</h2>
         <div id="followups-series" class="followup-list"></div>
@@ -466,6 +478,30 @@
           </label>
 
           <label class="switch-row">
+            <span>Avisos de Windows cuando un pendiente llega a una plataforma que pagas</span>
+            <span class="switch">
+              <input type="checkbox" id="pref-availability-notify-toggle" checked>
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+            </span>
+          </label>
+
+          <label class="switch-row">
+            <span>Cambiar sola la plataforma de esos pendientes a la que pagas</span>
+            <span class="switch">
+              <input type="checkbox" id="pref-auto-platform-toggle" checked>
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+            </span>
+          </label>
+
+          <label class="switch-row">
+            <span>Avisos de Windows con episodios nuevos de lo que estás viendo</span>
+            <span class="switch">
+              <input type="checkbox" id="pref-episodes-notify-toggle" checked>
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+            </span>
+          </label>
+
+          <label class="switch-row">
             <span>Aviso "hace un año viste..."</span>
             <span class="switch">
               <input type="checkbox" id="pref-anniv-toggle" checked>
@@ -532,10 +568,13 @@
 
         <div class="settings-box">
           <h2>Copia de seguridad y datos</h2>
-          <p class="help">Guarda tu lista completa en un archivo, o recupérala en este u otro ordenador.</p>
+          <p class="help">Guarda tu lista completa en un archivo, o recupérala en este u otro ordenador.
+            "Importar" sustituye lo que tengas por lo del archivo; "Fusionar" solo añade a tu lista los títulos
+            que te falten y completa los que ya tienes (útil para juntar dos perfiles o dos ordenadores).</p>
           <div class="settings-actions">
             <button id="btn-export" class="btn"><svg class="icon"><use href="#icon-download"></use></svg>Exportar</button>
             <button id="btn-import" class="btn"><svg class="icon"><use href="#icon-upload"></use></svg>Importar</button>
+            <button id="btn-import-merge" class="btn"><svg class="icon"><use href="#icon-upload"></use></svg>Fusionar con mi lista</button>
           </div>
           <div class="settings-actions" style="margin-top:10px">
             <button id="btn-open-data-folder" class="btn">Abrir carpeta de datos</button>
@@ -566,25 +605,33 @@
           <h2>Importar historial de visionado</h2>
           <p class="help">
             Ninguna plataforma de streaming ofrece una conexión automática con apps de terceros, pero puedes
-            importar tu historial desde un archivo CSV para marcar como vistas muchas películas de golpe.<br>
+            importar tu historial desde un archivo para marcar como vistas muchas películas de golpe. Lo que ya
+            tengas en tu lista no se duplica.<br>
             <strong>Netflix</strong> lo genera directamente: Cuenta → Actividad de visualización → Descargar todo.<br>
+            <strong>Letterboxd</strong>: Settings → Data → Export your data (usa <em>diary.csv</em>, <em>watched.csv</em>,
+            <em>ratings.csv</em> o <em>watchlist.csv</em>; la watchlist entra como pendientes).<br>
+            <strong>IMDb</strong>: exporta tus valoraciones o tu watchlist desde la propia lista (menú ··· → Exportar).<br>
+            <strong>Trakt</strong>: Settings → Data → Export, e importa cualquiera de sus archivos <em>.json</em>
+            (historial, vistas, valoraciones o watchlist).<br>
             Para <strong>Prime Video, Disney+, HBO Max</strong> u otras, normalmente hay que solicitar tus datos
             personales desde la configuración de privacidad de la cuenta (puede tardar días), o crear tú mismo
             una hoja con columnas de título y fecha. El mismo importador sirve para cualquiera de esos archivos.
           </p>
-          <button id="btn-import-csv" class="btn"><svg class="icon"><use href="#icon-upload"></use></svg>Elegir archivo CSV...</button>
+          <button id="btn-import-csv" class="btn"><svg class="icon"><use href="#icon-upload"></use></svg>Elegir archivo CSV o JSON...</button>
 
           <div id="csv-mapping" class="csv-mapping hidden">
             <p class="hint" id="csv-file-info"></p>
-            <label>Columna con el título</label>
-            <select id="csv-col-title"></select>
-            <label>Columna con la fecha (opcional)</label>
-            <select id="csv-col-date"></select>
-            <label>Tipo (las series se detectan solas si el título trae "Temporada"/"Season")</label>
-            <select id="csv-type">
-              <option value="pelicula">Película</option>
-              <option value="serie">Serie</option>
-            </select>
+            <div id="csv-manual-fields">
+              <label>Columna con el título</label>
+              <select id="csv-col-title"></select>
+              <label>Columna con la fecha (opcional)</label>
+              <select id="csv-col-date"></select>
+              <label>Tipo (las series se detectan solas si el título trae "Temporada"/"Season")</label>
+              <select id="csv-type">
+                <option value="pelicula">Película</option>
+                <option value="serie">Serie</option>
+              </select>
+            </div>
             <label>Plataforma donde las viste</label>
             <select id="csv-platform"></select>
             <input id="csv-platform-custom" class="hidden" placeholder="Escribe la plataforma">
@@ -669,6 +716,9 @@
               <div class="multiselect-panel hidden" id="genre-panel"></div>
             </div>
             <input type="hidden" id="f-genres">
+            <label for="f-tags">Etiquetas</label>
+            <input id="f-tags" list="tags-datalist" placeholder="p.ej. halloween, con Ana (separadas por comas)">
+            <datalist id="tags-datalist"></datalist>
             <label>URL del póster</label>
             <input id="f-poster" placeholder="https://...">
           </div>
@@ -933,6 +983,9 @@
 <script src="../lib/subscription-logic.js"></script>
 <script src="../lib/html-utils.js"></script>
 <script src="../lib/csv-import-utils.js"></script>
+<script src="../lib/merge-logic.js"></script>
+<script src="../lib/list-logic.js"></script>
+<script src="../lib/availability-logic.js"></script>
 <script src="../lib/followups-logic.js"></script>
 <script src="../lib/progress-logic.js"></script>
 <script src="features/updater.js"></script>

@@ -1,8 +1,9 @@
 // The core movies/series feature: platform selects, list rendering
 // (Pendientes/Viendo/Vistas), multi-select & bulk actions, genre multiselect, the
-// add/edit modal, bulk quick-add, and CSV history import. Uses
-// extractSeriesTitle and buildMovieKey from lib/csv-import-utils.js. Plain
-// global-scope script — see updater.js for the load-order note.
+// add/edit modal, bulk quick-add, and history import. The filtering, import
+// parsing and merging logic lives in lib/ (list-logic.js,
+// csv-import-utils.js, merge-logic.js). Plain global-scope script — see
+// updater.js for the load-order note.
 
 /* ---------- Platform selects ---------- */
 
@@ -15,21 +16,43 @@ function fillPlatformSelects() {
   $('#bulk-platform-select-vistas').innerHTML = plainOptions;
 
   fillSelectOptions('#filter-platform', 'Todas las plataformas',
-    [...new Set(getPending().map((m) => m.platform).filter(Boolean))].sort());
+    [...new Set(getPending().map((m) => m.platform).filter(Boolean))].sort(),
+    [{ value: ON_MY_SUBSCRIPTIONS, label: 'En mis suscripciones activas' }]);
   fillSelectOptions('#filter-genre', 'Todos los géneros',
     [...new Set(getPending().flatMap((m) => m.genres || []))].sort());
   fillSelectOptions('#filter-platform-vistas', 'Todas las plataformas',
     [...new Set(getWatched().map((m) => m.platform).filter(Boolean))].sort());
   fillSelectOptions('#filter-genre-vistas', 'Todos los géneros',
     [...new Set(getWatched().flatMap((m) => m.genres || []))].sort());
+  fillTagFilter('#filter-tag', getPending());
+  fillTagFilter('#filter-tag-vistas', getWatched());
+  $('#tags-datalist').innerHTML = allTags().map((t) => `<option value="${escapeHtml(t)}"></option>`).join('');
 }
 
-function fillSelectOptions(selector, placeholder, values) {
+// `extra` are special options ({ value, label }) listed right after the
+// placeholder, before the plain values.
+function fillSelectOptions(selector, placeholder, values, extra = []) {
   const select = $(selector);
   const current = select.value;
   select.innerHTML = `<option value="">${placeholder}</option>` +
+    extra.map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join('') +
     values.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
-  if (values.includes(current)) select.value = current;
+  if (values.includes(current) || extra.some((o) => o.value === current)) select.value = current;
+}
+
+function allTags() {
+  return [...new Set(movies.flatMap((m) => m.tags || []))].sort((a, b) => a.localeCompare(b, 'es'));
+}
+
+// The tag filter only shows up once some title in that list has tags.
+function fillTagFilter(selector, list) {
+  const tags = [...new Set(list.flatMap((m) => m.tags || []))].sort((a, b) => a.localeCompare(b, 'es'));
+  fillSelectOptions(selector, 'Todas las etiquetas', tags);
+  $(selector).classList.toggle('hidden', !tags.length);
+}
+
+function activeSubscriptionPlatforms() {
+  return subscriptions.filter((s) => s.active).map((s) => s.platform);
 }
 
 
@@ -40,36 +63,38 @@ function posterOrPlaceholder(movie) {
   return `<div class="poster">${escapeHtml(movie.title)}</div>`;
 }
 
+// filterSortPendientes / filterSortVistas live in lib/list-logic.js.
 function computeFilteredPendientes() {
-  const typeValue = $('#filter-type').value;
-  const platformValue = $('#filter-platform').value;
-  const genreValue = $('#filter-genre').value;
-  const searchValue = $('#search-pendientes').value.trim().toLowerCase();
-  const sortValue = $('#sort-pendientes').value;
-
   // Titles in progress have their own "Viendo" tab, so they are left out
   // here even though getPending() (stats, planner...) still counts them.
-  let list = getPending()
-    .filter((m) => m.status !== 'viendo')
-    .filter((m) => !typeValue || (m.type || 'pelicula') === typeValue)
-    .filter((m) => !platformValue || m.platform === platformValue)
-    .filter((m) => !genreValue || (m.genres || []).includes(genreValue))
-    .filter((m) => !searchValue || m.title.toLowerCase().includes(searchValue));
-
-  return list.slice().sort((a, b) => {
-    if (sortValue === 'added-asc') return (a.dateAdded || '').localeCompare(b.dateAdded || '');
-    if (sortValue === 'title-asc') return a.title.localeCompare(b.title, 'es');
-    return (b.dateAdded || '').localeCompare(a.dateAdded || '');
+  return filterSortPendientes(getPending().filter((m) => m.status !== 'viendo'), {
+    type: $('#filter-type').value,
+    platform: $('#filter-platform').value,
+    genre: $('#filter-genre').value,
+    tag: $('#filter-tag').value,
+    search: $('#search-pendientes').value,
+    sort: $('#sort-pendientes').value,
+    activePlatforms: activeSubscriptionPlatforms(),
   });
+}
+
+function tagBadgesHtml(m) {
+  return (m.tags || []).slice(0, 2).map((t) => `<span class="badge tag">#${escapeHtml(t)}</span>`).join('');
 }
 
 // Card used by both Pendientes and Viendo: quick "mark as watched" button,
 // plus "+1 episode" for series in progress. The episode total ("E5/9") comes
-// from the shared TMDB cache when the series has TMDB data.
+// from the shared TMDB cache when the series has TMDB data. Also flags a
+// pending title streaming on a subscription you have active, and a series in
+// progress with an episode out this week that you haven't watched.
 function pendingCardHtml(m, i, selecting, isSelected) {
   const isViendoSerie = m.status === 'viendo' && m.type === 'serie';
   const progressLabel = formatProgress(m.currentSeason, m.currentEpisode,
     m.type === 'serie' ? episodeCountFor(cachedSeasons(m.tmdbId), Number(m.currentSeason) || 1) : null);
+  const onYours = activeSubscriptionPlatforms().filter((p) => (m.availableOn || []).includes(p));
+  const newEpisode = isViendoSerie && m.tmdbId
+    ? recentUnwatchedEpisode(m, tmdbCache()[`tv:${m.tmdbId}`], todayLocalDateString())
+    : null;
   return `
   <div class="card${selecting ? ' selecting' : ''}${isSelected ? ' selected' : ''}" data-id="${m.id}" style="animation-delay:${Math.min(i, 20) * 30}ms">
     ${selecting
@@ -81,7 +106,10 @@ function pendingCardHtml(m, i, selecting, isSelected) {
       <div class="title">${escapeHtml(m.title)}</div>
       <div class="meta-row"><span class="type-tag">${TYPE_LABELS[m.type] || TYPE_LABELS.pelicula}</span><span class="year">${escapeHtml(m.year || '')}</span></div>
       ${m.status === 'viendo' ? `<span class="badge viendo">${escapeHtml(progressLabel)}</span>` : ''}
+      ${newEpisode ? `<span class="badge new-episode" title="Emitido el ${escapeHtml(newEpisode.airDate)}">Nuevo: T${newEpisode.seasonNumber} · E${newEpisode.episodeNumber}</span>` : ''}
       ${m.platform ? `<span class="badge platform"><svg class="icon"><use href="#icon-tv"></use></svg>${escapeHtml(m.platform)}</span>` : ''}
+      ${onYours.length ? `<span class="badge available" title="Incluida en ${escapeHtml(onYours.join(', '))}, que tienes activa">En tu ${escapeHtml(onYours[0])}</span>` : ''}
+      ${tagBadgesHtml(m)}
     </div>
   </div>
   `;
@@ -198,25 +226,14 @@ function renderViendo() {
 }
 
 function computeFilteredVistas() {
-  const sortValue = $('#sort-vistas').value;
-  const searchValue = $('#search-vistas').value.trim().toLowerCase();
-  const typeValue = $('#filter-type-vistas').value;
-  const platformValue = $('#filter-platform-vistas').value;
-  const genreValue = $('#filter-genre-vistas').value;
-  const ratingMin = Number($('#filter-rating-min').value) || 0;
-
-  let list = getWatched()
-    .filter((m) => !searchValue || m.title.toLowerCase().includes(searchValue))
-    .filter((m) => !typeValue || (m.type || 'pelicula') === typeValue)
-    .filter((m) => !platformValue || m.platform === platformValue)
-    .filter((m) => !genreValue || (m.genres || []).includes(genreValue))
-    .filter((m) => !ratingMin || (m.rating || 0) >= ratingMin);
-
-  return list.slice().sort((a, b) => {
-    if (sortValue === 'rating-desc') return (b.rating || 0) - (a.rating || 0);
-    if (sortValue === 'rating-asc') return (a.rating || 0) - (b.rating || 0);
-    if (sortValue === 'date-asc') return (a.dateWatched || '').localeCompare(b.dateWatched || '');
-    return (b.dateWatched || '').localeCompare(a.dateWatched || '');
+  return filterSortVistas(getWatched(), {
+    type: $('#filter-type-vistas').value,
+    platform: $('#filter-platform-vistas').value,
+    genre: $('#filter-genre-vistas').value,
+    tag: $('#filter-tag-vistas').value,
+    search: $('#search-vistas').value,
+    sort: $('#sort-vistas').value,
+    ratingMin: $('#filter-rating-min').value,
   });
 }
 
@@ -241,6 +258,7 @@ function renderVistas() {
         ${m.platform ? `<span class="badge platform"><svg class="icon"><use href="#icon-tv"></use></svg>${escapeHtml(m.platform)}</span>` : ''}
         ${m.type === 'serie' && m.seasons ? `<span class="badge">${m.seasons} temporada${m.seasons === 1 ? '' : 's'}</span>` : ''}
         ${m.watchCount > 1 ? `<span class="badge">Vista ${m.watchCount}x</span>` : ''}
+        ${tagBadgesHtml(m)}
       </div>
     </div>
   `;
@@ -493,6 +511,7 @@ function resetForm() {
   $('#f-title').value = '';
   $('#f-year').value = '';
   setGenres([]);
+  $('#f-tags').value = '';
   $('#f-poster').value = '';
   $('#f-poster-preview').src = '';
   $('#f-status').value = 'pendiente';
@@ -552,6 +571,7 @@ function openModal(movieId, options = {}) {
     $('#f-title').value = m.title;
     $('#f-year').value = m.year || '';
     setGenres(m.genres || []);
+    $('#f-tags').value = (m.tags || []).join(', ');
     $('#f-poster').value = m.poster || '';
     $('#f-poster-preview').src = m.poster || '';
     $('#f-status').value = options.markWatched ? 'vista' : m.status;
@@ -678,54 +698,13 @@ async function applyBulkAdd() {
 }
 
 
-/* ---------- CSV history import ---------- */
+/* ---------- History import (CSV / JSON) ---------- */
 
-function parseCsv(text) {
-  const rows = [];
-  let row = [];
-  let field = '';
-  let inQuotes = false;
-  for (let i = 0; i < text.length; i += 1) {
-    const c = text[i];
-    if (inQuotes) {
-      if (c === '"') {
-        if (text[i + 1] === '"') { field += '"'; i += 1; } else { inQuotes = false; }
-      } else {
-        field += c;
-      }
-    } else if (c === '"') {
-      inQuotes = true;
-    } else if (c === ',') {
-      row.push(field); field = '';
-    } else if (c === '\n' || c === '\r') {
-      if (c === '\r' && text[i + 1] === '\n') i += 1;
-      row.push(field); field = '';
-      if (row.length > 1 || row[0] !== '') rows.push(row);
-      row = [];
-    } else {
-      field += c;
-    }
-  }
-  if (field !== '' || row.length) { row.push(field); rows.push(row); }
-  const headers = rows.shift() || [];
-  return { headers, rows };
-}
-
-function normalizeDate(raw) {
-  if (!raw) return null;
-  const s = raw.trim();
-  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-  if (m) {
-    let [, a, b, y] = m;
-    if (y.length === 2) y = (Number(y) < 70 ? '20' : '19') + y;
-    const day = Number(a) > 12 ? a : (Number(b) > 12 ? b : a);
-    const month = Number(a) > 12 ? b : (Number(b) > 12 ? a : b);
-    return `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  }
-  return null;
-}
+// parseImportFile, recordsFromMappedCsv (lib/csv-import-utils.js) and
+// applyImportRecords (lib/merge-logic.js) do the work; this is the UI.
+// csvParsed is either { format, records } for a recognised export
+// (Letterboxd, IMDb, Trakt) or { format: null, headers, rows } for any other
+// CSV, whose columns the user maps by hand.
 
 function guessColumn(headers, pattern) {
   const idx = headers.findIndex((h) => pattern.test(h));
@@ -733,28 +712,39 @@ function guessColumn(headers, pattern) {
 }
 
 function showCsvMappingPanel(fileName) {
-  const { headers, rows } = csvParsed;
-  const titleSelect = $('#csv-col-title');
-  const dateSelect = $('#csv-col-date');
-
-  titleSelect.innerHTML = headers.map((h, i) => `<option value="${i}">${escapeHtml(h)}</option>`).join('');
-  dateSelect.innerHTML = '<option value="">(no importar fecha)</option>' +
-    headers.map((h, i) => `<option value="${i}">${escapeHtml(h)}</option>`).join('');
-
-  titleSelect.value = guessColumn(headers, /t[íi]tulo|title|pel[íi]cula|name/i);
-  const dateGuess = headers.findIndex((h) => /fecha|date|visto|watched/i.test(h));
-  dateSelect.value = dateGuess >= 0 ? String(dateGuess) : '';
+  const manual = !csvParsed.format;
+  $('#csv-manual-fields').classList.toggle('hidden', !manual);
 
   const lowerName = fileName.toLowerCase();
-  let platformGuess = '';
+  let platformGuess = manual ? '' : 'No recuerdo';
   if (lowerName.includes('netflix')) platformGuess = 'Netflix';
   else if (lowerName.includes('prime') || lowerName.includes('amazon')) platformGuess = 'Prime Video';
   else if (lowerName.includes('disney')) platformGuess = 'Disney+';
   else if (lowerName.includes('hbo')) platformGuess = 'HBO Max';
-  if (platformGuess) $('#csv-platform').value = platformGuess;
+  if (platformGuess && PLATFORMS.includes(platformGuess)) $('#csv-platform').value = platformGuess;
   $('#csv-platform-custom').classList.toggle('hidden', $('#csv-platform').value !== 'Otra');
 
-  $('#csv-file-info').textContent = `${fileName} · ${rows.length} fila${rows.length === 1 ? '' : 's'} detectada${rows.length === 1 ? '' : 's'}`;
+  if (manual) {
+    const { headers, rows } = csvParsed;
+    const titleSelect = $('#csv-col-title');
+    const dateSelect = $('#csv-col-date');
+    titleSelect.innerHTML = headers.map((h, i) => `<option value="${i}">${escapeHtml(h)}</option>`).join('');
+    dateSelect.innerHTML = '<option value="">(no importar fecha)</option>' +
+      headers.map((h, i) => `<option value="${i}">${escapeHtml(h)}</option>`).join('');
+    titleSelect.value = guessColumn(headers, /t[íi]tulo|title|pel[íi]cula|name/i);
+    const dateGuess = headers.findIndex((h) => /fecha|date|visto|watched/i.test(h));
+    dateSelect.value = dateGuess >= 0 ? String(dateGuess) : '';
+    $('#csv-file-info').textContent = `${fileName} · ${rows.length} fila${rows.length === 1 ? '' : 's'} detectada${rows.length === 1 ? '' : 's'}`;
+  } else {
+    const { records, format } = csvParsed;
+    const watched = records.filter((r) => r.status === 'vista').length;
+    const pending = records.length - watched;
+    const parts = [];
+    if (watched) parts.push(`${watched} vista${watched === 1 ? '' : 's'}`);
+    if (pending) parts.push(`${pending} pendiente${pending === 1 ? '' : 's'}`);
+    $('#csv-file-info').textContent = `${fileName} · formato ${format.label} · ${parts.join(' y ') || 'sin títulos'}`;
+  }
+
   $('#csv-mapping').classList.remove('hidden');
   $('#csv-import-status').textContent = '';
 }
@@ -765,9 +755,6 @@ function csvPlatformValue() {
   return select;
 }
 
-// extractSeriesTitle is defined in lib/csv-import-utils.js (loaded as a global
-// <script> before this file).
-
 async function applyCsvImport() {
   if (!csvParsed) return;
   const status = $('#csv-import-status');
@@ -777,79 +764,47 @@ async function applyCsvImport() {
     status.textContent = 'Indica la plataforma (o escribe una personalizada).';
     return;
   }
-  const titleIdx = Number($('#csv-col-title').value);
-  const dateValue = $('#csv-col-date').value;
-  const dateIdx = dateValue === '' ? -1 : Number(dateValue);
-  const defaultType = $('#csv-type').value;
 
-  const parseRow = (row) => {
-    const raw = (row[titleIdx] || '').trim();
-    if (!raw) return null;
-    const seriesMatch = extractSeriesTitle(raw);
-    return seriesMatch || { title: raw, type: defaultType };
-  };
-
-  const existingTitles = new Map(movies.map((m) => [buildMovieKey(m.type, m.title), m]));
-  const countedKeys = new Set();
-  let toUpdate = 0;
-  let toAdd = 0;
-  let skipped = 0;
-  csvParsed.rows.forEach((row) => {
-    const parsed = parseRow(row);
-    if (!parsed) { skipped += 1; return; }
-    const key = buildMovieKey(parsed.type, parsed.title);
-    if (existingTitles.has(key) || countedKeys.has(key)) toUpdate += 1;
-    else { toAdd += 1; countedKeys.add(key); }
-  });
-
-  if (!toUpdate && !toAdd) {
+  const records = csvParsed.format
+    ? csvParsed.records
+    : recordsFromMappedCsv(csvParsed.rows, {
+      titleIdx: Number($('#csv-col-title').value),
+      dateIdx: $('#csv-col-date').value === '' ? -1 : Number($('#csv-col-date').value),
+      defaultType: $('#csv-type').value,
+    });
+  if (!records.length) {
     status.classList.add('error');
     status.textContent = 'No se ha detectado ninguna fila con título válido.';
     return;
   }
 
-  const confirmMsg = `Se marcarán ${toUpdate} título${toUpdate === 1 ? '' : 's'} existente${toUpdate === 1 ? '' : 's'} como visto en ${platform}, y se añadirán ${toAdd} nuevo${toAdd === 1 ? '' : 's'} directamente como visto${toAdd === 1 ? '' : 's'}.` +
-    (skipped ? ` ${skipped} fila${skipped === 1 ? '' : 's'} sin título se ignorará${skipped === 1 ? '' : 'n'}.` : '') +
-    ' ¿Continuar?';
+  const preview = applyImportRecords(movies, records, {
+    platform,
+    today: todayLocalDateString(),
+    now: new Date().toISOString(),
+    newId: uid,
+  });
+  if (!preview.added && !preview.updated) {
+    status.classList.remove('error');
+    status.textContent = `No hay nada nuevo que importar: los ${preview.unchanged} títulos del archivo ya están en tu lista.`;
+    return;
+  }
+
+  const confirmMsg = `Se añadirán ${preview.added} título${preview.added === 1 ? '' : 's'} nuevo${preview.added === 1 ? '' : 's'}`
+    + ` y se actualizarán ${preview.updated} que ya tenías`
+    + (preview.unchanged ? ` (${preview.unchanged} ya estaba${preview.unchanged === 1 ? '' : 'n'} al día)` : '')
+    + '. Las vistas se guardan en la plataforma elegida. ¿Continuar?';
   if (!confirm(confirmMsg)) return;
 
-  csvParsed.rows.forEach((row) => {
-    const parsed = parseRow(row);
-    if (!parsed) return;
-    const dateWatched = dateIdx >= 0 ? (normalizeDate(row[dateIdx]) || todayLocalDateString()) : todayLocalDateString();
-    const existing = movies.find((m) => (m.type || 'pelicula') === parsed.type && m.title.trim().toLowerCase() === parsed.title.toLowerCase());
-    if (existing) {
-      existing.status = 'vista';
-      existing.platform = platform;
-      existing.dateWatched = dateWatched;
-    } else {
-      movies.push({
-        id: uid(),
-        tmdbId: null,
-        mediaType: null,
-        type: parsed.type,
-        title: parsed.title,
-        year: '',
-        runtime: null,
-        seasons: null,
-        genres: [],
-        poster: '',
-        platform,
-        status: 'vista',
-        rating: null,
-        notes: '',
-        dateWatched,
-        dateAdded: new Date().toISOString(),
-      });
-    }
-  });
-
+  movies = preview.movies;
   await saveMovies();
   renderAll();
   csvParsed = null;
   $('#csv-mapping').classList.add('hidden');
   status.classList.remove('error');
-  status.textContent = `Importación completa: ${toUpdate} actualizada${toUpdate === 1 ? '' : 's'} a vista, ${toAdd} añadida${toAdd === 1 ? '' : 's'} nueva${toAdd === 1 ? '' : 's'}.`;
+  status.textContent = `Importación completa: ${preview.added} añadido${preview.added === 1 ? '' : 's'}, ${preview.updated} actualizado${preview.updated === 1 ? '' : 's'}.`;
+  // Imported pending titles may already be on a platform you pay for.
+  loadFollowups();
 }
 
 
@@ -872,11 +827,13 @@ function bindMovieEvents() {
   $('#filter-type').addEventListener('change', resetPendientesPageAndRender);
   $('#filter-platform').addEventListener('change', resetPendientesPageAndRender);
   $('#filter-genre').addEventListener('change', resetPendientesPageAndRender);
+  $('#filter-tag').addEventListener('change', resetPendientesPageAndRender);
   $('#sort-pendientes').addEventListener('change', resetPendientesPageAndRender);
   $('#search-pendientes').addEventListener('input', resetPendientesPageAndRender);
   $('#filter-type-vistas').addEventListener('change', resetVistasPageAndRender);
   $('#filter-platform-vistas').addEventListener('change', resetVistasPageAndRender);
   $('#filter-genre-vistas').addEventListener('change', resetVistasPageAndRender);
+  $('#filter-tag-vistas').addEventListener('change', resetVistasPageAndRender);
   $('#filter-rating-min').addEventListener('change', resetVistasPageAndRender);
   $('#sort-vistas').addEventListener('change', resetVistasPageAndRender);
   $('#search-vistas').addEventListener('input', resetVistasPageAndRender);
@@ -993,10 +950,10 @@ function bindMovieEvents() {
       status.textContent = 'No se pudo leer el archivo.';
       return;
     }
-    const parsed = parseCsv(res.text);
-    if (!parsed.headers.length || !parsed.rows.length) {
+    const parsed = parseImportFile(res.text, res.fileName);
+    if (parsed.error || (parsed.format && !parsed.records.length)) {
       status.classList.add('error');
-      status.textContent = 'El archivo no parece un CSV válido.';
+      status.textContent = 'El archivo no parece un historial válido (CSV, o JSON de Trakt).';
       return;
     }
     csvParsed = parsed;
@@ -1189,9 +1146,10 @@ async function handleSubmit() {
     }
   }
 
+  const tmdbId = $('#f-tmdbid').value ? Number($('#f-tmdbid').value) : null;
   const payload = {
     id: editingId || uid(),
-    tmdbId: $('#f-tmdbid').value ? Number($('#f-tmdbid').value) : null,
+    tmdbId,
     mediaType: $('#f-mediatype').value || null,
     type,
     title,
@@ -1199,6 +1157,7 @@ async function handleSubmit() {
     runtime: $('#f-runtime').value ? Number($('#f-runtime').value) : null,
     seasons: type === 'serie' && $('#f-seasons').value ? Number($('#f-seasons').value) : null,
     genres: $('#f-genres').value.split(',').map((g) => g.trim()).filter(Boolean),
+    tags: parseTagsInput($('#f-tags').value),
     poster: $('#f-poster').value.trim(),
     platform,
     status,
@@ -1210,6 +1169,11 @@ async function handleSubmit() {
     watchCount: status === 'vista' ? (existingMovie && existingMovie.status === 'vista' ? (existingMovie.watchCount || 1) : 1) : null,
     dateAdded: existingMovie ? existingMovie.dateAdded : new Date().toISOString(),
   };
+  // Where it streams comes from TMDB, not the form: keep it unless the
+  // title was pointed at a different TMDB entry.
+  if (existingMovie && existingMovie.availableOn && existingMovie.tmdbId === tmdbId) {
+    payload.availableOn = existingMovie.availableOn;
+  }
 
   if (editingId) {
     movies = movies.map((m) => (m.id === editingId ? payload : m));

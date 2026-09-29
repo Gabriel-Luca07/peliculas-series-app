@@ -86,7 +86,9 @@ function renderGlobalSearchResults(query) {
     emptyEl.classList.add('hidden');
     return;
   }
-  const matches = movies.filter((m) => m.title.toLowerCase().includes(q)).slice(0, 30);
+  const matches = movies
+    .filter((m) => m.title.toLowerCase().includes(q) || (m.tags || []).some((t) => t.toLowerCase().includes(q)))
+    .slice(0, 30);
   if (!matches.length) {
     resultsEl.innerHTML = '';
     emptyEl.classList.remove('hidden');

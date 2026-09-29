@@ -63,6 +63,7 @@ async function activateSubscription(platform, dateValue, cycleDays) {
   subscriptions = res.subscriptions;
   subscriptionHistory = res.history;
   invalidateRecommendations();
+  onActiveSubscriptionsChanged();
   return true;
 }
 
@@ -246,6 +247,7 @@ async function deleteSubscriptionHistoryEntry(id) {
   renderSubscriptions();
   renderSubscriptionHistory();
   updateSubPlannerResult();
+  onActiveSubscriptionsChanged();
 }
 
 const DAILY_PACE_CAP_MINUTES = 4 * 60;
