@@ -272,35 +272,27 @@ function pickRandomPending() {
 
 /* ---------- Upcoming releases ---------- */
 
+// Series details come from the shared TMDB cache (tmdb-cache.js), refreshed
+// at most once a day per series unless forced with the refresh button.
 async function loadUpcomingReleases(force = false) {
-  const lastFetch = Number(localStorage.getItem(pk('upcoming-last-fetch'))) || 0;
-  const oneDayMs = 24 * 60 * 60 * 1000;
-  if (!force && upcomingCache && (Date.now() - lastFetch) < oneDayMs) {
-    renderUpcomingSection();
-    return;
-  }
   const series = movies.filter((m) => m.type === 'serie' && m.tmdbId);
-  if (!series.length) {
-    upcomingCache = [];
-    renderUpcomingSection();
-    return;
-  }
+  await refreshTvDetails(series, force);
+  const cache = tmdbCache();
   const results = [];
-  for (const m of series.slice(0, 20)) {
-    const details = await window.api.getTmdbDetails(m.tmdbId, 'tv');
-    if (details && details.nextEpisode && details.nextEpisode.airDate) {
-      results.push({
-        title: m.title,
-        poster: details.poster || m.poster || '',
-        airDate: details.nextEpisode.airDate,
-        seasonNumber: details.nextEpisode.seasonNumber,
-        episodeNumber: details.nextEpisode.episodeNumber,
-      });
-    }
-  }
+  series.forEach((m) => {
+    const entry = cache[`tv:${m.tmdbId}`];
+    const next = entry && entry.nextEpisode;
+    if (!next || !next.airDate) return;
+    results.push({
+      title: m.title,
+      poster: entry.poster || m.poster || '',
+      airDate: next.airDate,
+      seasonNumber: next.seasonNumber,
+      episodeNumber: next.episodeNumber,
+    });
+  });
   results.sort((a, b) => a.airDate.localeCompare(b.airDate));
   upcomingCache = results.slice(0, 10);
-  localStorage.setItem(pk('upcoming-last-fetch'), String(Date.now()));
   renderUpcomingSection();
 }
 

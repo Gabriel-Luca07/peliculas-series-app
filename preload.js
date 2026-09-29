@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('api', {
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
   searchTmdb: (query) => ipcRenderer.invoke('tmdb:search', query),
   getTmdbDetails: (tmdbId, mediaType) => ipcRenderer.invoke('tmdb:details', tmdbId, mediaType),
+  getTmdbCollection: (collectionId) => ipcRenderer.invoke('tmdb:collection', collectionId),
   getTmdbProviders: (tmdbId, mediaType) => ipcRenderer.invoke('tmdb:providers', tmdbId, mediaType),
   openTrailer: (tmdbId, mediaType) => ipcRenderer.invoke('tmdb:openTrailer', tmdbId, mediaType),
   getRecommendations: (tmdbId, mediaType) => ipcRenderer.invoke('tmdb:recommendations', tmdbId, mediaType),
@@ -44,6 +45,12 @@ contextBridge.exposeInMainWorld('api', {
   openBackupsFolder: () => ipcRenderer.invoke('app:openBackupsFolder'),
   runBackupNow: () => ipcRenderer.invoke('app:runBackupNow'),
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
+  notify: (title, body, view) => ipcRenderer.invoke('app:notify', title, body, view),
+  onNavigate: (callback) => {
+    const handler = (_event, view) => callback(view);
+    ipcRenderer.on('app:navigate', handler);
+    return () => ipcRenderer.removeListener('app:navigate', handler);
+  },
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),
   installUpdate: () => ipcRenderer.invoke('updater:install'),
   onUpdaterStatus: (callback) => {

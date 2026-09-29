@@ -18,6 +18,7 @@ function updateNavIndicator() {
 
 function showToast(message, variant = 'success', options = {}) {
   const { actionLabel, onAction, duration = 3000 } = options;
+  const actions = options.actions || (actionLabel ? [{ label: actionLabel, onAction }] : []);
   const container = $('#toast-container');
   const toast = document.createElement('div');
   toast.className = `toast ${variant}`;
@@ -32,17 +33,17 @@ function showToast(message, variant = 'success', options = {}) {
     setTimeout(() => toast.remove(), 320);
   };
 
-  if (actionLabel) {
+  actions.forEach((action) => {
     const actionBtn = document.createElement('button');
     actionBtn.className = 'toast-action';
-    actionBtn.textContent = actionLabel;
+    actionBtn.textContent = action.label;
     actionBtn.addEventListener('click', () => {
       clearTimeout(timeoutId);
-      if (onAction) onAction();
+      if (action.onAction) action.onAction();
       dismiss();
     });
     toast.appendChild(actionBtn);
-  }
+  });
 
   container.appendChild(toast);
   requestAnimationFrame(() => requestAnimationFrame(() => toast.classList.add('show')));
@@ -118,7 +119,9 @@ function renderAll() {
   fillPlatformSelects();
   renderDashboard();
   renderPendientes();
+  renderViendo();
   renderVistas();
+  renderFollowups();
 }
 
 /* ---------- Navigation ---------- */
@@ -127,6 +130,7 @@ async function switchView(view) {
   $$('.nav-item').forEach((btn) => btn.classList.toggle('active', btn.dataset.view === view));
   $$('.view').forEach((section) => section.classList.toggle('active', section.id === `view-${view}`));
   updateNavIndicator();
+  if (view === 'novedades') loadFollowups();
   if (view === 'suscripciones') {
     // Re-fetch rather than just re-rendering the cached array: main.js's
     // subscriptions:list is where auto-renewal/expiry/history-backfill actually

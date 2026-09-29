@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
 const crypto = require('crypto');
@@ -338,6 +338,10 @@ autoUpdater.on('update-downloaded', (info) => sendUpdaterStatus({
 }));
 autoUpdater.on('error', (err) => sendUpdaterStatus({ state: 'error', message: err.message }));
 
+// Windows only shows toast notifications for an app with an AppUserModelID;
+// it has to match the installer's appId (package.json build.appId).
+if (process.platform === 'win32') app.setAppUserModelId('com.raul.peliculasyseries');
+
 app.whenReady().then(async () => {
   await migrateLegacyDataIfNeeded();
   await purgeOldDeletedProfiles();
@@ -532,282 +536,250 @@ ipcMain.handle('settings:save', async (_event, settings) => {
   return true;
 });
 
-ipcMain.handle('tmdb:search', async (_event, query) => {
-  const settings = await loadMergedSettings();
-  const apiKey = settings.tmdbApiKey;
-  const language = settings.language || 'es-ES';
-  if (!apiKey) {
-    return { error: 'NO_API_KEY' };
-  }
-  const url = `https://api.themoviedb.org/3/search/multi?query=${encodeURIComponent(query)}&language=${language}&include_adult=false`;
-  try {
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    if (!res.ok) {
-      if (res.status === 401) return { error: 'INVALID_API_KEY' };
-      return { error: 'REQUEST_FAILED', status: res.status };
-    }
-    const json = await res.json();
-    const [movieGenresRes, tvGenresRes] = await Promise.all([
-      fetch(`https://api.themoviedb.org/3/genre/movie/list?language=${language}`, { headers: { Authorization: `Bearer ${apiKey}` } }),
-      fetch(`https://api.themoviedb.org/3/genre/tv/list?language=${language}`, { headers: { Authorization: `Bearer ${apiKey}` } }),
-    ]);
-    const movieGenres = movieGenresRes.ok ? await movieGenresRes.json() : { genres: [] };
-    const tvGenres = tvGenresRes.ok ? await tvGenresRes.json() : { genres: [] };
-    const movieGenreMap = new Map(movieGenres.genres.map((g) => [g.id, g.name]));
-    const tvGenreMap = new Map(tvGenres.genres.map((g) => [g.id, g.name]));
+/* ---------- TMDB ---------- */
 
-    const results = (json.results || [])
-      .filter((m) => m.media_type === 'movie' || m.media_type === 'tv')
-      .slice(0, 12)
-      .map((m) => {
-        const isTv = m.media_type === 'tv';
-        const genreMap = isTv ? tvGenreMap : movieGenreMap;
-        return {
-          tmdbId: m.id,
-          mediaType: isTv ? 'tv' : 'movie',
-          title: isTv ? m.name : m.title,
-          year: (isTv ? m.first_air_date : m.release_date) ? (isTv ? m.first_air_date : m.release_date).slice(0, 4) : '',
-          poster: m.poster_path ? `https://image.tmdb.org/t/p/w200${m.poster_path}` : '',
-          genres: (m.genre_ids || []).map((id) => genreMap.get(id)).filter(Boolean),
-          overview: m.overview || '',
-        };
-      });
-    return { results };
-  } catch (err) {
-    return { error: 'NETWORK_ERROR', message: err.message };
-  }
-});
+const TMDB_API = 'https://api.themoviedb.org/3';
 
-ipcMain.handle('tmdb:details', async (_event, tmdbId, mediaType) => {
-  const settings = await loadMergedSettings();
-  const apiKey = settings.tmdbApiKey;
-  const language = settings.language || 'es-ES';
-  if (!apiKey) return { error: 'NO_API_KEY' };
-  try {
-    const kind = mediaType === 'tv' ? 'tv' : 'movie';
-    const res = await fetch(`https://api.themoviedb.org/3/${kind}/${tmdbId}?language=${language}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    if (!res.ok) return { error: 'REQUEST_FAILED', status: res.status };
-    const json = await res.json();
-    if (kind === 'tv') {
-      const next = json.next_episode_to_air;
-      const episodes = json.number_of_episodes || null;
-      const episodeRuntime = Array.isArray(json.episode_run_time) && json.episode_run_time.length
-        ? json.episode_run_time[0]
-        : null;
-      return {
-        seasons: json.number_of_seasons || null,
-        episodes,
-        runtime: episodes && episodeRuntime ? episodes * episodeRuntime : null,
-        status: json.status || null,
-        poster: json.poster_path ? `https://image.tmdb.org/t/p/w200${json.poster_path}` : null,
-        nextEpisode: next ? {
-          airDate: next.air_date || null,
-          seasonNumber: next.season_number || null,
-          episodeNumber: next.episode_number || null,
-          name: next.name || null,
-        } : null,
-      };
-    }
-    return { runtime: json.runtime || null };
-  } catch (err) {
-    return { error: 'NETWORK_ERROR', message: err.message };
-  }
-});
+function tmdbImage(size, imagePath) {
+  return imagePath ? `https://image.tmdb.org/t/p/${size}${imagePath}` : '';
+}
 
-ipcMain.handle('tmdb:providers', async (_event, tmdbId, mediaType) => {
-  const settings = await loadMergedSettings();
-  const apiKey = settings.tmdbApiKey;
-  const region = settings.region || 'ES';
-  if (!apiKey) return { error: 'NO_API_KEY' };
-  try {
-    const kind = mediaType === 'tv' ? 'tv' : 'movie';
-    const res = await fetch(`https://api.themoviedb.org/3/${kind}/${tmdbId}/watch/providers`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    if (!res.ok) return { error: 'REQUEST_FAILED', status: res.status };
-    const json = await res.json();
-    const es = (json.results && json.results[region]) || null;
-    if (!es) return { providers: [] };
-    const names = new Set();
-    ['flatrate', 'free', 'ads'].forEach((key) => {
-      (es[key] || []).forEach((p) => names.add(p.provider_name));
-    });
-    const rentBuy = new Set();
-    ['rent', 'buy'].forEach((key) => {
-      (es[key] || []).forEach((p) => rentBuy.add(p.provider_name));
-    });
-    return {
-      providers: [...names],
-      rentBuy: [...rentBuy],
-      link: es.link || null,
+function tmdbGet(apiKey, pathAndQuery) {
+  return fetch(`${TMDB_API}${pathAndQuery}`, { headers: { Authorization: `Bearer ${apiKey}` } });
+}
+
+// Parsed JSON of a TMDB request, or `fallback` when it doesn't come back OK.
+async function tmdbJsonOr(apiKey, pathAndQuery, fallback) {
+  const res = await tmdbGet(apiKey, pathAndQuery);
+  return res.ok ? res.json() : fallback;
+}
+
+// Registers a tmdb:* IPC handler with the boilerplate every one of them
+// shares: read the key/language/region from settings, bail out without a key,
+// and turn a thrown fetch into NETWORK_ERROR. `noKeyResult` is what to return
+// when there's no key (defaults to the NO_API_KEY error).
+function handleTmdb(channel, handler, { noKeyResult = { error: 'NO_API_KEY' } } = {}) {
+  ipcMain.handle(channel, async (_event, ...args) => {
+    const settings = await loadMergedSettings();
+    const ctx = {
+      apiKey: settings.tmdbApiKey,
+      language: settings.language || 'es-ES',
+      region: settings.region || 'ES',
     };
-  } catch (err) {
-    return { error: 'NETWORK_ERROR', message: err.message };
-  }
-});
-
-ipcMain.handle('tmdb:openTrailer', async (_event, tmdbId, mediaType) => {
-  const settings = await loadMergedSettings();
-  const apiKey = settings.tmdbApiKey;
-  const language = settings.language || 'es-ES';
-  if (!apiKey) return { error: 'NO_API_KEY' };
-  try {
-    const kind = mediaType === 'tv' ? 'tv' : 'movie';
-    const res = await fetch(`https://api.themoviedb.org/3/${kind}/${tmdbId}/videos?language=${language}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    if (!res.ok) return { error: 'REQUEST_FAILED', status: res.status };
-    const json = await res.json();
-    let videos = (json.results || []).filter((v) => v.site === 'YouTube');
-    if (!videos.length) {
-      const resEn = await fetch(`https://api.themoviedb.org/3/${kind}/${tmdbId}/videos`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      });
-      if (resEn.ok) {
-        const jsonEn = await resEn.json();
-        videos = (jsonEn.results || []).filter((v) => v.site === 'YouTube');
-      }
+    if (!ctx.apiKey) return noKeyResult;
+    try {
+      return await handler(ctx, ...args);
+    } catch (err) {
+      return { error: 'NETWORK_ERROR', message: err.message };
     }
-    if (!videos.length) return { error: 'NOT_FOUND' };
-    const best = videos.find((v) => v.type === 'Trailer' && v.official)
-      || videos.find((v) => v.type === 'Trailer')
-      || videos[0];
-    await shell.openExternal(`https://www.youtube.com/watch?v=${best.key}`);
-    return { opened: true };
-  } catch (err) {
-    return { error: 'NETWORK_ERROR', message: err.message };
-  }
-});
-
-ipcMain.handle('tmdb:recommendations', async (_event, tmdbId, mediaType) => {
-  const settings = await loadMergedSettings();
-  const apiKey = settings.tmdbApiKey;
-  const language = settings.language || 'es-ES';
-  if (!apiKey) return { error: 'NO_API_KEY' };
-  try {
-    const kind = mediaType === 'tv' ? 'tv' : 'movie';
-    const res = await fetch(`https://api.themoviedb.org/3/${kind}/${tmdbId}/recommendations?language=${language}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    if (!res.ok) return { error: 'REQUEST_FAILED', status: res.status };
-    const json = await res.json();
-    const results = (json.results || []).slice(0, 20).map((m) => ({
-      tmdbId: m.id,
-      mediaType: kind,
-      title: kind === 'tv' ? m.name : m.title,
-      year: (kind === 'tv' ? m.first_air_date : m.release_date) ? (kind === 'tv' ? m.first_air_date : m.release_date).slice(0, 4) : '',
-      poster: m.poster_path ? `https://image.tmdb.org/t/p/w200${m.poster_path}` : '',
-    }));
-    return { results };
-  } catch (err) {
-    return { error: 'NETWORK_ERROR', message: err.message };
-  }
-});
-
-function mapTmdbResult(kind) {
-  return (m) => ({
-    tmdbId: m.id,
-    mediaType: kind,
-    title: kind === 'tv' ? m.name : m.title,
-    year: (kind === 'tv' ? m.first_air_date : m.release_date) ? (kind === 'tv' ? m.first_air_date : m.release_date).slice(0, 4) : '',
-    poster: m.poster_path ? `https://image.tmdb.org/t/p/w200${m.poster_path}` : '',
   });
 }
 
-ipcMain.handle('tmdb:trending', async () => {
-  const settings = await loadMergedSettings();
-  const apiKey = settings.tmdbApiKey;
-  const language = settings.language || 'es-ES';
-  if (!apiKey) return { error: 'NO_API_KEY' };
-  try {
-    const [movieRes, tvRes] = await Promise.all([
-      fetch(`https://api.themoviedb.org/3/trending/movie/week?language=${language}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      }),
-      fetch(`https://api.themoviedb.org/3/trending/tv/week?language=${language}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      }),
-    ]);
-    const movieJson = movieRes.ok ? await movieRes.json() : { results: [] };
-    const tvJson = tvRes.ok ? await tvRes.json() : { results: [] };
+function mapTmdbResult(kind) {
+  return (m) => {
+    const date = kind === 'tv' ? m.first_air_date : m.release_date;
     return {
-      movies: (movieJson.results || []).slice(0, 20).map(mapTmdbResult('movie')),
-      tv: (tvJson.results || []).slice(0, 20).map(mapTmdbResult('tv')),
+      tmdbId: m.id,
+      mediaType: kind,
+      title: kind === 'tv' ? m.name : m.title,
+      year: date ? date.slice(0, 4) : '',
+      poster: tmdbImage('w200', m.poster_path),
     };
-  } catch (err) {
-    return { error: 'NETWORK_ERROR', message: err.message };
-  }
-});
+  };
+}
 
-ipcMain.handle('tmdb:providerLogos', async () => {
-  const settings = await loadMergedSettings();
-  const apiKey = settings.tmdbApiKey;
-  const language = settings.language || 'es-ES';
-  const region = settings.region || 'ES';
-  if (!apiKey) return { error: 'NO_API_KEY' };
-  try {
-    const [movieRes, tvRes] = await Promise.all([
-      fetch(`https://api.themoviedb.org/3/watch/providers/movie?language=${language}&watch_region=${region}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      }),
-      fetch(`https://api.themoviedb.org/3/watch/providers/tv?language=${language}&watch_region=${region}`, {
-        headers: { Authorization: `Bearer ${apiKey}` },
-      }),
-    ]);
-    const movieJson = movieRes.ok ? await movieRes.json() : { results: [] };
-    const tvJson = tvRes.ok ? await tvRes.json() : { results: [] };
-    const logos = {};
-    const providerIds = {};
-    [...(movieJson.results || []), ...(tvJson.results || [])].forEach((p) => {
-      if (p.provider_name && p.logo_path && !logos[p.provider_name]) {
-        logos[p.provider_name] = `https://image.tmdb.org/t/p/original${p.logo_path}`;
-      }
-      if (p.provider_name && p.provider_id && !providerIds[p.provider_name]) {
-        providerIds[p.provider_name] = p.provider_id;
-      }
+// Genre id -> name maps, per language. They practically never change, so
+// they're fetched once per session instead of on every search.
+const genreMapsCache = new Map();
+
+async function getGenreMaps(apiKey, language) {
+  if (genreMapsCache.has(language)) return genreMapsCache.get(language);
+  const [movieRes, tvRes] = await Promise.all([
+    tmdbGet(apiKey, `/genre/movie/list?language=${language}`),
+    tmdbGet(apiKey, `/genre/tv/list?language=${language}`),
+  ]);
+  const movieGenres = movieRes.ok ? await movieRes.json() : { genres: [] };
+  const tvGenres = tvRes.ok ? await tvRes.json() : { genres: [] };
+  const maps = {
+    movie: new Map(movieGenres.genres.map((g) => [g.id, g.name])),
+    tv: new Map(tvGenres.genres.map((g) => [g.id, g.name])),
+  };
+  // Only keep complete results, so a failed request is retried next search.
+  if (movieRes.ok && tvRes.ok) genreMapsCache.set(language, maps);
+  return maps;
+}
+
+handleTmdb('tmdb:search', async ({ apiKey, language }, query) => {
+  const res = await tmdbGet(apiKey, `/search/multi?query=${encodeURIComponent(query)}&language=${language}&include_adult=false`);
+  if (!res.ok) {
+    if (res.status === 401) return { error: 'INVALID_API_KEY' };
+    return { error: 'REQUEST_FAILED', status: res.status };
+  }
+  const json = await res.json();
+  const genreMaps = await getGenreMaps(apiKey, language);
+
+  const results = (json.results || [])
+    .filter((m) => m.media_type === 'movie' || m.media_type === 'tv')
+    .slice(0, 12)
+    .map((m) => {
+      const kind = m.media_type === 'tv' ? 'tv' : 'movie';
+      return {
+        ...mapTmdbResult(kind)(m),
+        genres: (m.genre_ids || []).map((id) => genreMaps[kind].get(id)).filter(Boolean),
+        overview: m.overview || '',
+      };
     });
-    return { logos, providerIds };
-  } catch (err) {
-    return { error: 'NETWORK_ERROR', message: err.message };
-  }
+  return { results };
 });
 
-ipcMain.handle('tmdb:discoverByProviders', async (_event, providerIds, mediaTypes) => {
-  const settings = await loadMergedSettings();
-  const apiKey = settings.tmdbApiKey;
-  const language = settings.language || 'es-ES';
-  const region = settings.region || 'ES';
-  if (!apiKey || !Array.isArray(providerIds) || !providerIds.length) return { movies: [], tv: [] };
-  try {
-    const idsParam = providerIds.join('|');
-    const wantMovie = !mediaTypes || mediaTypes.includes('movie');
-    const wantTv = !mediaTypes || mediaTypes.includes('tv');
-    const [movieRes, tvRes] = await Promise.all([
-      wantMovie
-        ? fetch(`https://api.themoviedb.org/3/discover/movie?language=${language}&watch_region=${region}&with_watch_providers=${idsParam}&sort_by=popularity.desc`, {
-          headers: { Authorization: `Bearer ${apiKey}` },
-        })
-        : null,
-      wantTv
-        ? fetch(`https://api.themoviedb.org/3/discover/tv?language=${language}&watch_region=${region}&with_watch_providers=${idsParam}&sort_by=popularity.desc`, {
-          headers: { Authorization: `Bearer ${apiKey}` },
-        })
-        : null,
-    ]);
-    const movieJson = movieRes && movieRes.ok ? await movieRes.json() : { results: [] };
-    const tvJson = tvRes && tvRes.ok ? await tvRes.json() : { results: [] };
+handleTmdb('tmdb:details', async ({ apiKey, language }, tmdbId, mediaType) => {
+  const kind = mediaType === 'tv' ? 'tv' : 'movie';
+  const res = await tmdbGet(apiKey, `/${kind}/${tmdbId}?language=${language}`);
+  if (!res.ok) return { error: 'REQUEST_FAILED', status: res.status };
+  const json = await res.json();
+  if (kind === 'tv') {
+    const next = json.next_episode_to_air;
+    const last = json.last_episode_to_air;
+    const episodes = json.number_of_episodes || null;
+    // Many series have no average runtime in TMDB; fall back to the runtime
+    // of the latest (or next) episode so the total isn't left empty.
+    const episodeRuntime = (Array.isArray(json.episode_run_time) && json.episode_run_time[0])
+      || (last && last.runtime)
+      || (next && next.runtime)
+      || null;
     return {
-      movies: (movieJson.results || []).slice(0, 20).map(mapTmdbResult('movie')),
-      tv: (tvJson.results || []).slice(0, 20).map(mapTmdbResult('tv')),
+      seasons: json.number_of_seasons || null,
+      episodes,
+      runtime: episodes && episodeRuntime ? episodes * episodeRuntime : null,
+      status: json.status || null,
+      poster: tmdbImage('w200', json.poster_path) || null,
+      seasonsList: (json.seasons || []).map((season) => ({
+        seasonNumber: season.season_number,
+        airDate: season.air_date || null,
+        episodeCount: season.episode_count || null,
+      })),
+      nextEpisode: next ? {
+        airDate: next.air_date || null,
+        seasonNumber: next.season_number || null,
+        episodeNumber: next.episode_number || null,
+        name: next.name || null,
+      } : null,
     };
-  } catch (err) {
-    return { error: 'NETWORK_ERROR', message: err.message };
   }
+  return {
+    runtime: json.runtime || null,
+    releaseDate: json.release_date || null,
+    collectionId: json.belongs_to_collection ? json.belongs_to_collection.id : null,
+  };
 });
+
+handleTmdb('tmdb:collection', async ({ apiKey, language }, collectionId) => {
+  const res = await tmdbGet(apiKey, `/collection/${collectionId}?language=${language}`);
+  if (!res.ok) return { error: 'REQUEST_FAILED', status: res.status };
+  const json = await res.json();
+  return {
+    name: json.name || '',
+    parts: (json.parts || []).map((p) => ({
+      tmdbId: p.id,
+      title: p.title,
+      releaseDate: p.release_date || null,
+      poster: tmdbImage('w200', p.poster_path),
+    })),
+  };
+});
+
+handleTmdb('tmdb:providers', async ({ apiKey, region }, tmdbId, mediaType) => {
+  const kind = mediaType === 'tv' ? 'tv' : 'movie';
+  const res = await tmdbGet(apiKey, `/${kind}/${tmdbId}/watch/providers`);
+  if (!res.ok) return { error: 'REQUEST_FAILED', status: res.status };
+  const json = await res.json();
+  const es = (json.results && json.results[region]) || null;
+  if (!es) return { providers: [] };
+  const names = new Set();
+  ['flatrate', 'free', 'ads'].forEach((key) => {
+    (es[key] || []).forEach((p) => names.add(p.provider_name));
+  });
+  const rentBuy = new Set();
+  ['rent', 'buy'].forEach((key) => {
+    (es[key] || []).forEach((p) => rentBuy.add(p.provider_name));
+  });
+  return {
+    providers: [...names],
+    rentBuy: [...rentBuy],
+    link: es.link || null,
+  };
+});
+
+handleTmdb('tmdb:openTrailer', async ({ apiKey, language }, tmdbId, mediaType) => {
+  const kind = mediaType === 'tv' ? 'tv' : 'movie';
+  const res = await tmdbGet(apiKey, `/${kind}/${tmdbId}/videos?language=${language}`);
+  if (!res.ok) return { error: 'REQUEST_FAILED', status: res.status };
+  const json = await res.json();
+  let videos = (json.results || []).filter((v) => v.site === 'YouTube');
+  if (!videos.length) {
+    const jsonEn = await tmdbJsonOr(apiKey, `/${kind}/${tmdbId}/videos`, { results: [] });
+    videos = (jsonEn.results || []).filter((v) => v.site === 'YouTube');
+  }
+  if (!videos.length) return { error: 'NOT_FOUND' };
+  const best = videos.find((v) => v.type === 'Trailer' && v.official)
+    || videos.find((v) => v.type === 'Trailer')
+    || videos[0];
+  await shell.openExternal(`https://www.youtube.com/watch?v=${best.key}`);
+  return { opened: true };
+});
+
+handleTmdb('tmdb:recommendations', async ({ apiKey, language }, tmdbId, mediaType) => {
+  const kind = mediaType === 'tv' ? 'tv' : 'movie';
+  const res = await tmdbGet(apiKey, `/${kind}/${tmdbId}/recommendations?language=${language}`);
+  if (!res.ok) return { error: 'REQUEST_FAILED', status: res.status };
+  const json = await res.json();
+  return { results: (json.results || []).slice(0, 20).map(mapTmdbResult(kind)) };
+});
+
+handleTmdb('tmdb:trending', async ({ apiKey, language }) => {
+  const [movieJson, tvJson] = await Promise.all([
+    tmdbJsonOr(apiKey, `/trending/movie/week?language=${language}`, { results: [] }),
+    tmdbJsonOr(apiKey, `/trending/tv/week?language=${language}`, { results: [] }),
+  ]);
+  return {
+    movies: (movieJson.results || []).slice(0, 20).map(mapTmdbResult('movie')),
+    tv: (tvJson.results || []).slice(0, 20).map(mapTmdbResult('tv')),
+  };
+});
+
+handleTmdb('tmdb:providerLogos', async ({ apiKey, language, region }) => {
+  const [movieJson, tvJson] = await Promise.all([
+    tmdbJsonOr(apiKey, `/watch/providers/movie?language=${language}&watch_region=${region}`, { results: [] }),
+    tmdbJsonOr(apiKey, `/watch/providers/tv?language=${language}&watch_region=${region}`, { results: [] }),
+  ]);
+  const logos = {};
+  const providerIds = {};
+  [...(movieJson.results || []), ...(tvJson.results || [])].forEach((p) => {
+    if (p.provider_name && p.logo_path && !logos[p.provider_name]) {
+      logos[p.provider_name] = tmdbImage('original', p.logo_path);
+    }
+    if (p.provider_name && p.provider_id && !providerIds[p.provider_name]) {
+      providerIds[p.provider_name] = p.provider_id;
+    }
+  });
+  return { logos, providerIds };
+});
+
+handleTmdb('tmdb:discoverByProviders', async ({ apiKey, language, region }, providerIds, mediaTypes) => {
+  if (!Array.isArray(providerIds) || !providerIds.length) return { movies: [], tv: [] };
+  const idsParam = providerIds.join('|');
+  const wantMovie = !mediaTypes || mediaTypes.includes('movie');
+  const wantTv = !mediaTypes || mediaTypes.includes('tv');
+  const query = `language=${language}&watch_region=${region}&with_watch_providers=${idsParam}&sort_by=popularity.desc`;
+  const [movieJson, tvJson] = await Promise.all([
+    wantMovie ? tmdbJsonOr(apiKey, `/discover/movie?${query}`, { results: [] }) : { results: [] },
+    wantTv ? tmdbJsonOr(apiKey, `/discover/tv?${query}`, { results: [] }) : { results: [] },
+  ]);
+  return {
+    movies: (movieJson.results || []).slice(0, 20).map(mapTmdbResult('movie')),
+    tv: (tvJson.results || []).slice(0, 20).map(mapTmdbResult('tv')),
+  };
+}, { noKeyResult: { movies: [], tv: [] } });
 
 ipcMain.handle('shareLists:list', async () => {
   const lists = await readJson(shareListsFile(currentProfileId), []);
@@ -1091,6 +1063,22 @@ ipcMain.handle('app:runBackupNow', async () => {
 });
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
+
+// System notification; clicking it brings the window back and tells the
+// renderer which view to open.
+ipcMain.handle('app:notify', (_event, title, body, view) => {
+  if (!Notification.isSupported()) return false;
+  const notification = new Notification({ title, body, icon: path.join(__dirname, 'build', 'icon.png') });
+  notification.on('click', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    if (view) mainWindow.webContents.send('app:navigate', view);
+  });
+  notification.show();
+  return true;
+});
 
 ipcMain.handle('updater:check', async () => {
   if (!app.isPackaged) return { error: 'DEV_MODE' };

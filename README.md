@@ -30,6 +30,10 @@ Construida con [Electron](https://www.electronjs.org/) y JavaScript "vanilla" (s
 
 **Seguimiento de títulos**
 - Añadir películas y series como pendientes, en curso ("viendo") o vistas, con plataforma, valoración, notas y fecha.
+- Apartado **Viendo** con lo que tienes a medias (separado de Pendientes), con el progreso de cada
+  serie ("T2 · E5/9": el total de episodios de la temporada sale de TMDB) y botones para sumar un
+  episodio o marcarlo como visto. Al acabar una temporada pasa sola a la siguiente si ya está
+  estrenada; al ponerte al día te ofrece marcar la serie como vista. Cada +1 se puede deshacer.
 - Progreso de series por temporada y episodio.
 - Marcar una película/serie como vista con un clic desde la propia lista (sin abrir el formulario).
 - Volver a marcar como vista ("rewatch") llevando la cuenta de cuántas veces la has visto.
@@ -46,7 +50,14 @@ Construida con [Electron](https://www.electronjs.org/) y JavaScript "vanilla" (s
   títulos parecidos a lo que has valorado con novedades en tendencia (para no quedarte siempre con
   "más de lo mismo"), con una pequeña cuota de series entre las películas. El botón de recargar
   muestra selecciones distintas cada vez, sin repetirse hasta agotar las opciones disponibles.
-- Panel de "Próximos estrenos" con la fecha del próximo episodio de las series que sigues.
+- Panel de "Próximos estrenos" con la fecha del próximo episodio de todas tus series con datos de TMDB.
+- Apartado **Novedades**: avisa cuando una serie que ya has visto saca temporada nueva (o la tiene
+  anunciada, con su fecha si ya la hay) y cuando una película que has visto tiene continuación
+  (siguiente parte de la misma saga en TMDB, estrenada o por estrenar). Desde ahí puedes pasar la
+  serie a "Viendo" en la temporada nueva (con opción de deshacer), añadir la secuela a tu lista o
+  descartar el aviso. El número junto a "Novedades" en el menú cuenta lo que ya tiene fecha.
+  Cuando aparece algo nuevo te llega un **aviso de Windows** (al hacer clic abre Novedades); se
+  puede desactivar en Ajustes → Comportamiento.
 
 **Recomendar a otras personas**
 - Apartado **Recomendar**: crea listas de recomendaciones pensadas para compartir con otra gente,
@@ -118,7 +129,7 @@ PeliculasApp/
 │
 ├── renderer/                 Todo lo que se ve y ejecuta dentro de la ventana.
 │   ├── index.html             Estructura de todas las pantallas (Resumen, Pendientes,
-│   │                           Vistas, Papelera, Recomendar, Suscripciones, Ajustes) y los modales.
+│   │                           Viendo, Vistas, Novedades, Papelera, Recomendar, Suscripciones, Ajustes) y los modales.
 │   ├── renderer.js             Estado compartido, utilidades pequeñas, init() y todo el
 │   │                           cableado de eventos (bindEvents) — se carga el último.
 │   ├── features/               Un archivo por sección (perfiles, suscripciones, papelera,
@@ -232,7 +243,8 @@ npm test
 ```
 
 La lógica más delicada (fechas y "hoy" en hora local, ciclo de suscripciones — auto-renovación,
-solapes, días restantes —, importación de CSV y validación de perfiles) está separada en `lib/`,
+solapes, días restantes —, importación de CSV, validación de perfiles y detección de temporadas
+nuevas/secuelas) está separada en `lib/`,
 sin nada de Electron ni de DOM, para poder testearla de forma aislada. Se ejecuta con el propio
 test runner de Node (`node --test`), sin añadir ninguna librería nueva. Los tests viven en `test/`,
 uno por archivo de `lib/`.
@@ -283,7 +295,7 @@ Release, no los que tienen espacios.
    API (Configuración → API).
 2. En la app, ve a **Ajustes → Conexión con TMDB**, pega la clave, elige idioma y región, y guarda.
 3. A partir de ese momento, buscar un título autocompleta sus datos y desbloquea plataformas,
-   tráiler, recomendaciones, próximos estrenos y el apartado Recomendar (que usa la parte de
+   tráiler, recomendaciones, próximos estrenos, el apartado Novedades y el apartado Recomendar (que usa la parte de
    "descubrimiento" de las recomendaciones para armar tus listas para compartir).
 
 Sin clave de TMDB la app sigue funcionando con normalidad para llevar tu lista de forma manual;

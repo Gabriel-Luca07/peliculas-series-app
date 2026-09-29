@@ -33,6 +33,7 @@
   <symbol id="icon-restore" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4v4.5h4.5"/></symbol>
   <symbol id="icon-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><line x1="3.5" y1="10" x2="20.5" y2="10"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/></symbol>
   <symbol id="icon-clapper" viewBox="0 0 24 24"><path d="M3 9.8h18v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M3 9.8l1.3-5.2 3.2 1.8-1.3 3.4z"/><path d="M8.6 9.8l1.3-5.2 3.2 1.8-1.3 3.4z"/><path d="M14.2 9.8l1.3-5.2 3.2 1.8-1.3 3.4z"/></symbol>
+  <symbol id="icon-bell" viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2H4.5z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></symbol>
   <symbol id="icon-ticket" viewBox="0 0 24 24"><path d="M3 8.2a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1.8a2 2 0 0 0 0 4v1.8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1.8a2 2 0 0 0 0-4z"/><line x1="14" y1="6.5" x2="14" y2="17.5" stroke-dasharray="2.2 2.2"/></symbol>
 </svg>
 
@@ -55,7 +56,9 @@
       <div class="nav-indicator" id="nav-indicator"></div>
       <button class="nav-item active" data-view="dashboard"><svg class="icon"><use href="#icon-grid"></use></svg>Resumen</button>
       <button class="nav-item" data-view="pendientes"><svg class="icon"><use href="#icon-clock"></use></svg>Pendientes</button>
+      <button class="nav-item" data-view="viendo"><svg class="icon"><use href="#icon-play"></use></svg>Viendo<span class="nav-badge hidden" id="viendo-badge">0</span></button>
       <button class="nav-item" data-view="vistas"><svg class="icon"><use href="#icon-check"></use></svg>Vistas</button>
+      <button class="nav-item" data-view="novedades"><svg class="icon"><use href="#icon-bell"></use></svg>Novedades<span class="nav-badge hidden" id="followups-badge">0</span></button>
       <button class="nav-item" data-view="papelera"><svg class="icon"><use href="#icon-trash"></use></svg>Papelera<span class="nav-badge hidden" id="trash-badge">0</span></button>
       <button class="nav-item" data-view="recomendar"><svg class="icon"><use href="#icon-gift"></use></svg>Recomendar</button>
       <button class="nav-item" data-view="suscripciones"><svg class="icon"><use href="#icon-ticket"></use></svg>Suscripciones</button>
@@ -199,6 +202,25 @@
       <p id="empty-pendientes" class="empty hidden">No tienes nada pendiente. Añade una película o serie para empezar.</p>
     </section>
 
+    <section id="view-viendo" class="view">
+      <div class="sticky-header">
+        <header class="view-header">
+          <div>
+            <h1>Viendo</h1>
+          </div>
+          <span class="count-pill" id="count-viendo"></span>
+        </header>
+        <div class="toolbar">
+          <div class="search-box">
+            <svg class="icon"><use href="#icon-search"></use></svg>
+            <input id="search-viendo" placeholder="Buscar por título...">
+          </div>
+        </div>
+      </div>
+      <div id="list-viendo" class="movie-grid"></div>
+      <p id="empty-viendo" class="empty hidden"></p>
+    </section>
+
     <section id="view-vistas" class="view">
       <div class="sticky-header">
         <header class="view-header">
@@ -252,6 +274,26 @@
       <div id="list-vistas" class="movie-grid"></div>
       <button id="load-more-vistas" class="btn load-more hidden"></button>
       <p id="empty-vistas" class="empty hidden">Todavía no has marcado nada como visto.</p>
+    </section>
+
+    <section id="view-novedades" class="view">
+      <header class="view-header">
+        <div>
+          <h1>Novedades</h1>
+          <p class="subtitle">Temporadas nuevas de las series que has visto y continuaciones de las películas que has visto.</p>
+        </div>
+        <button id="btn-refresh-followups" class="icon-btn" title="Buscar novedades ahora"><svg class="icon"><use href="#icon-repeat"></use></svg></button>
+      </header>
+      <p id="followups-loading" class="help hidden">Buscando novedades en TMDB...</p>
+      <div class="chart-card followups-card hidden" id="followups-series-section">
+        <h2><svg class="icon"><use href="#icon-tv"></use></svg> Series con temporadas nuevas</h2>
+        <div id="followups-series" class="followup-list"></div>
+      </div>
+      <div class="chart-card followups-card hidden" id="followups-sequels-section">
+        <h2><svg class="icon"><use href="#icon-film"></use></svg> Continuaciones de películas que has visto</h2>
+        <div id="followups-sequels" class="followup-list"></div>
+      </div>
+      <p id="followups-empty" class="empty hidden"></p>
     </section>
 
     <section id="view-papelera" class="view">
@@ -374,7 +416,9 @@
           <select id="pref-start-view">
             <option value="dashboard">Resumen</option>
             <option value="pendientes">Pendientes</option>
+            <option value="viendo">Viendo</option>
             <option value="vistas">Vistas</option>
+            <option value="novedades">Novedades</option>
           </select>
 
           <label>Orden por defecto en Pendientes</label>
@@ -409,6 +453,14 @@
             <span>Recomendaciones automáticas</span>
             <span class="switch">
               <input type="checkbox" id="pref-recs-toggle" checked>
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+            </span>
+          </label>
+
+          <label class="switch-row">
+            <span>Avisos de Windows con novedades de lo que has visto</span>
+            <span class="switch">
+              <input type="checkbox" id="pref-followups-notify-toggle" checked>
               <span class="switch-track"><span class="switch-thumb"></span></span>
             </span>
           </label>
@@ -881,12 +933,16 @@
 <script src="../lib/subscription-logic.js"></script>
 <script src="../lib/html-utils.js"></script>
 <script src="../lib/csv-import-utils.js"></script>
+<script src="../lib/followups-logic.js"></script>
+<script src="../lib/progress-logic.js"></script>
 <script src="features/updater.js"></script>
 <script src="features/profiles.js"></script>
 <script src="features/appearance-settings.js"></script>
 <script src="features/ui-chrome.js"></script>
+<script src="features/tmdb-cache.js"></script>
 <script src="features/dashboard.js"></script>
 <script src="features/recommendations.js"></script>
+<script src="features/followups.js"></script>
 <script src="features/share-lists.js"></script>
 <script src="features/subscriptions.js"></script>
 <script src="features/movies.js"></script>

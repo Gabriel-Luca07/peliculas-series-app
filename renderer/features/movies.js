@@ -1,5 +1,5 @@
 // The core movies/series feature: platform selects, list rendering
-// (Pendientes/Vistas), multi-select & bulk actions, genre multiselect, the
+// (Pendientes/Viendo/Vistas), multi-select & bulk actions, genre multiselect, the
 // add/edit modal, bulk quick-add, and CSV history import. Uses
 // extractSeriesTitle and buildMovieKey from lib/csv-import-utils.js. Plain
 // global-scope script — see updater.js for the load-order note.
@@ -47,7 +47,10 @@ function computeFilteredPendientes() {
   const searchValue = $('#search-pendientes').value.trim().toLowerCase();
   const sortValue = $('#sort-pendientes').value;
 
+  // Titles in progress have their own "Viendo" tab, so they are left out
+  // here even though getPending() (stats, planner...) still counts them.
   let list = getPending()
+    .filter((m) => m.status !== 'viendo')
     .filter((m) => !typeValue || (m.type || 'pelicula') === typeValue)
     .filter((m) => !platformValue || m.platform === platformValue)
     .filter((m) => !genreValue || (m.genres || []).includes(genreValue))
@@ -60,38 +63,92 @@ function computeFilteredPendientes() {
   });
 }
 
+// Card used by both Pendientes and Viendo: quick "mark as watched" button,
+// plus "+1 episode" for series in progress. The episode total ("E5/9") comes
+// from the shared TMDB cache when the series has TMDB data.
+function pendingCardHtml(m, i, selecting, isSelected) {
+  const isViendoSerie = m.status === 'viendo' && m.type === 'serie';
+  const progressLabel = formatProgress(m.currentSeason, m.currentEpisode,
+    m.type === 'serie' ? episodeCountFor(cachedSeasons(m.tmdbId), Number(m.currentSeason) || 1) : null);
+  return `
+  <div class="card${selecting ? ' selecting' : ''}${isSelected ? ' selected' : ''}" data-id="${m.id}" style="animation-delay:${Math.min(i, 20) * 30}ms">
+    ${selecting
+      ? `<label class="select-check"><input type="checkbox" class="select-checkbox" data-id="${m.id}" ${isSelected ? 'checked' : ''}></label>`
+      : `<button class="quick-watch" data-id="${m.id}" title="Marcar como vista"><svg class="icon"><use href="#icon-check"></use></svg></button>
+         ${isViendoSerie ? `<button class="quick-episode" data-id="${m.id}" title="Sumar un episodio"><svg class="icon"><use href="#icon-plus"></use></svg></button>` : ''}`}
+    ${posterOrPlaceholder(m)}
+    <div class="info">
+      <div class="title">${escapeHtml(m.title)}</div>
+      <div class="meta-row"><span class="type-tag">${TYPE_LABELS[m.type] || TYPE_LABELS.pelicula}</span><span class="year">${escapeHtml(m.year || '')}</span></div>
+      ${m.status === 'viendo' ? `<span class="badge viendo">${escapeHtml(progressLabel)}</span>` : ''}
+      ${m.platform ? `<span class="badge platform"><svg class="icon"><use href="#icon-tv"></use></svg>${escapeHtml(m.platform)}</span>` : ''}
+    </div>
+  </div>
+  `;
+}
+
+function bindPendingCardQuickActions(container) {
+  container.querySelectorAll('.quick-watch').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openModal(btn.dataset.id, { markWatched: true });
+    });
+  });
+  container.querySelectorAll('.quick-episode').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const movie = movies.find((m) => m.id === btn.dataset.id);
+      if (movie) addEpisode(movie);
+    });
+  });
+}
+
+// "+1 episode": moves on to the next season when the current one is over
+// (if it's already out), offers to mark the series as watched once you're
+// caught up, and always offers an undo in case of a misclick.
+async function addEpisode(movie) {
+  const before = { currentSeason: movie.currentSeason, currentEpisode: movie.currentEpisode };
+  const seasons = await seasonsFor(movie);
+  const next = advanceEpisode(movie, seasons, todayLocalDateString());
+  movie.currentSeason = next.currentSeason;
+  movie.currentEpisode = next.currentEpisode;
+  await saveMovies();
+  renderAll();
+
+  const undo = {
+    label: 'Deshacer',
+    onAction: async () => {
+      Object.assign(movie, before);
+      await saveMovies();
+      renderAll();
+    },
+  };
+  if (next.event === 'season-finished') {
+    showToast(`${movie.title}: temporada ${next.finishedSeason} terminada, sigues con la ${next.currentSeason}`, 'success', { actions: [undo], duration: 5000 });
+  } else if (next.event === 'caught-up') {
+    showToast(`${movie.title}: estás al día (T${next.currentSeason} completa)`, 'success', {
+      actions: [{ label: 'Marcar como vista', onAction: () => openModal(movie.id, { markWatched: true }) }, undo],
+      duration: 7000,
+    });
+  } else {
+    const total = episodeCountFor(seasons, next.currentSeason);
+    showToast(`${movie.title}: episodio ${next.currentEpisode}${total ? ` de ${total}` : ''}${next.currentSeason ? ` (T${next.currentSeason})` : ''}`, 'success', { actions: [undo] });
+  }
+}
+
 function renderPendientes() {
   const list = computeFilteredPendientes();
 
   const container = $('#list-pendientes');
   const visible = list.slice(0, pendientesPageSize);
   const selecting = selectionMode.pendientes;
-  container.innerHTML = visible.map((m, i) => {
-    const isViendoSerie = m.status === 'viendo' && m.type === 'serie';
-    const isSelected = selectedIds.pendientes.has(m.id);
-    const progressLabel = (m.currentSeason || m.currentEpisode)
-      ? `Viendo${m.currentSeason ? ` T${m.currentSeason}` : ''}${m.currentEpisode ? ` · E${m.currentEpisode}` : ''}`
-      : 'Viendo';
-    return `
-    <div class="card${selecting ? ' selecting' : ''}${isSelected ? ' selected' : ''}" data-id="${m.id}" style="animation-delay:${Math.min(i, 20) * 30}ms">
-      ${selecting
-        ? `<label class="select-check"><input type="checkbox" class="select-checkbox" data-id="${m.id}" ${isSelected ? 'checked' : ''}></label>`
-        : `<button class="quick-watch" data-id="${m.id}" title="Marcar como vista"><svg class="icon"><use href="#icon-check"></use></svg></button>
-           ${isViendoSerie ? `<button class="quick-episode" data-id="${m.id}" title="Sumar un episodio"><svg class="icon"><use href="#icon-plus"></use></svg></button>` : ''}`}
-      ${posterOrPlaceholder(m)}
-      <div class="info">
-        <div class="title">${escapeHtml(m.title)}</div>
-        <div class="meta-row"><span class="type-tag">${TYPE_LABELS[m.type] || TYPE_LABELS.pelicula}</span><span class="year">${escapeHtml(m.year || '')}</span></div>
-        ${m.status === 'viendo' ? `<span class="badge viendo">${escapeHtml(progressLabel)}</span>` : ''}
-        ${m.platform ? `<span class="badge platform"><svg class="icon"><use href="#icon-tv"></use></svg>${escapeHtml(m.platform)}</span>` : ''}
-      </div>
-    </div>
-  `;
-  }).join('');
+  container.innerHTML = visible
+    .map((m, i) => pendingCardHtml(m, i, selecting, selectedIds.pendientes.has(m.id)))
+    .join('');
 
   const emptyEl = $('#empty-pendientes');
   emptyEl.classList.toggle('hidden', list.length > 0);
-  emptyEl.textContent = getPending().length
+  emptyEl.textContent = getPending().some((m) => m.status !== 'viendo')
     ? 'Nada coincide con la búsqueda o los filtros.'
     : 'No tienes nada pendiente. Añade una película o serie para empezar.';
   $('#count-pendientes').textContent = `${list.length} título${list.length === 1 ? '' : 's'}`;
@@ -111,23 +168,33 @@ function renderPendientes() {
     cb.addEventListener('click', (e) => e.stopPropagation());
     cb.addEventListener('change', () => toggleSelection('pendientes', cb.dataset.id, cb.checked));
   });
-  container.querySelectorAll('.quick-watch').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openModal(btn.dataset.id, { markWatched: true });
-    });
+  bindPendingCardQuickActions(container);
+}
+
+function renderViendo() {
+  const searchValue = $('#search-viendo').value.trim().toLowerCase();
+  const inProgress = movies.filter((m) => m.status === 'viendo');
+  const list = inProgress
+    .filter((m) => !searchValue || m.title.toLowerCase().includes(searchValue))
+    .sort((a, b) => a.title.localeCompare(b.title, 'es'));
+
+  const container = $('#list-viendo');
+  container.innerHTML = list.map((m, i) => pendingCardHtml(m, i, false, false)).join('');
+
+  const emptyEl = $('#empty-viendo');
+  emptyEl.classList.toggle('hidden', list.length > 0);
+  emptyEl.textContent = inProgress.length
+    ? 'Nada coincide con la búsqueda.'
+    : 'No estás viendo nada ahora mismo. Cambia el estado de un pendiente a «Viendo» para seguirlo aquí.';
+  $('#count-viendo').textContent = `${list.length} título${list.length === 1 ? '' : 's'}`;
+  const badge = $('#viendo-badge');
+  badge.textContent = String(inProgress.length);
+  badge.classList.toggle('hidden', !inProgress.length);
+
+  container.querySelectorAll('.card').forEach((card) => {
+    card.addEventListener('click', () => openModal(card.dataset.id));
   });
-  container.querySelectorAll('.quick-episode').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const movie = movies.find((m) => m.id === btn.dataset.id);
-      if (!movie) return;
-      movie.currentEpisode = (movie.currentEpisode || 0) + 1;
-      await saveMovies();
-      renderAll();
-      showToast(`${movie.title}: episodio ${movie.currentEpisode}${movie.currentSeason ? ` (T${movie.currentSeason})` : ''}`);
-    });
-  });
+  bindPendingCardQuickActions(container);
 }
 
 function computeFilteredVistas() {
@@ -813,6 +880,7 @@ function bindMovieEvents() {
   $('#filter-rating-min').addEventListener('change', resetVistasPageAndRender);
   $('#sort-vistas').addEventListener('change', resetVistasPageAndRender);
   $('#search-vistas').addEventListener('input', resetVistasPageAndRender);
+  $('#search-viendo').addEventListener('input', renderViendo);
   $('#load-more-pendientes').addEventListener('click', () => {
     pendientesPageSize += PAGE_SIZE;
     renderPendientes();

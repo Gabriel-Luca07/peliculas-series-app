@@ -86,6 +86,7 @@ function initBehaviorPrefs() {
   const deleteMode = localStorage.getItem(pk('pref-delete-mode')) || 'undo';
   const recsEnabled = localStorage.getItem(pk('pref-recs-enabled')) !== 'false';
   const annivEnabled = localStorage.getItem(pk('pref-anniv-enabled')) !== 'false';
+  const followupsNotify = localStorage.getItem(pk('pref-followups-notify')) !== 'false';
 
   $('#pref-start-view').value = startView;
   $('#pref-sort-pendientes').value = sortPendientes;
@@ -94,6 +95,7 @@ function initBehaviorPrefs() {
   $('#pref-delete-mode').value = deleteMode;
   $('#pref-recs-toggle').checked = recsEnabled;
   $('#pref-anniv-toggle').checked = annivEnabled;
+  $('#pref-followups-notify-toggle').checked = followupsNotify;
 
   PAGE_SIZE = pageSize;
   pendientesPageSize = PAGE_SIZE;
@@ -212,6 +214,9 @@ function bindAppearanceEvents() {
   $('#pref-anniv-toggle').addEventListener('change', (e) => {
     localStorage.setItem(pk('pref-anniv-enabled'), String(e.target.checked));
     renderDashboard();
+  });
+  $('#pref-followups-notify-toggle').addEventListener('change', (e) => {
+    localStorage.setItem(pk('pref-followups-notify'), String(e.target.checked));
   });
   $$('.panel-toggle').forEach((toggle) => {
     toggle.addEventListener('change', (e) => {

@@ -131,10 +131,13 @@ async function init() {
   switchView(localStorage.getItem(pk('pref-start-view')) || 'dashboard');
   if (localStorage.getItem(pk('pref-recs-enabled')) !== 'false') loadRecommendations();
   loadUpcomingReleases();
+  loadFollowups();
   loadProviderLogos();
   window.api.getAppVersion().then((v) => { $('#app-version').textContent = `v${v}`; });
   updateProfileBadge();
   initAutoUpdater();
+  // Clicking a system notification (e.g. from Novedades) opens its view.
+  window.api.onNavigate((view) => switchView(view));
 }
 
 /* ---------- Events ---------- */
@@ -178,6 +181,7 @@ function bindEvents() {
   bindProfileEvents();
   bindDashboardEvents();
   bindRecommendationsEvents();
+  bindFollowupsEvents();
   bindShareListEvents();
   bindSubscriptionEvents();
   bindTrashEvents();

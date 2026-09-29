@@ -871,6 +871,42 @@ main {
   white-space: nowrap;
 }
 
+.followups-card { margin-bottom: 20px; }
+.followups-card h2 .icon { color: var(--accent); }
+.followup-list { display: flex; flex-direction: column; gap: 4px; }
+.followup-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 4px;
+  border-radius: 8px;
+  animation: rowIn 0.25s ease both;
+}
+.followup-item + .followup-item { border-top: 1px solid var(--border); }
+.followup-poster {
+  width: 46px;
+  height: 69px;
+  object-fit: cover;
+  border-radius: 5px;
+  background: var(--bg-elev-2);
+  flex-shrink: 0;
+}
+.followup-info { flex: 1; min-width: 0; }
+.followup-title { font-size: 14px; font-weight: 600; }
+.followup-sub { font-size: 12px; color: var(--text-muted); margin: 3px 0 6px; }
+.followup-state {
+  display: inline-block;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 2px 9px;
+  background: var(--bg-elev-2);
+  color: var(--text-muted);
+}
+.followup-state.released { background: rgba(var(--accent-rgb), 0.16); color: var(--accent); }
+.followup-state.upcoming { color: var(--series-1); }
+.followup-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
 .card {
   position: relative;
   background: var(--bg-elev);
